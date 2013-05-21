@@ -15,3 +15,7 @@
 *.exe
 *.out
 *.app
+
+xcuserdata
+bin
+.DS_Store

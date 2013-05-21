@@ -3,18 +3,28 @@
 // http://dev.w3.org/csswg/css-syntax/#tokenizing-and-parsing-css
 
 
-struct tokeniser;
-typedef int(*state)(struct tokeniser*);
+struct lexer;
+typedef int(*state)(struct lexer*);
 
-struct tokeniser {
+struct lexer {
     FILE* input;
     unsigned current;
     unsigned next;
     state state;
 };
 
+void lexer_consume(struct lexer* L)
+{
+    // consume
+    L->current = L->next;
+    L->next = fgetc(L->input);
+    printf("Consuming '%c'; next is '%c'\n", L->current, L->next);
+}
+
 enum
 {
+    TOKEN_NONE = 0,
+    
     TOKEN_IDENT,
     TOKEN_FUNCTION,
     TOKEN_AT_KEYWORD,
@@ -48,64 +58,101 @@ enum
     TOKEN_RIGHT_CURLY
 };
 
-int state_double_quoted_string(struct tokeniser* t)
+int state_double_quoted_string(struct lexer* t)
 {
     return 0;
 }
 
-int state_single_quoted_string(struct tokeniser* t)
+int state_single_quoted_string(struct lexer* t)
 {
     return 0;
 }
 
-int state_data(struct tokeniser* t)
+int state_data(struct lexer* L)
 {
-    switch(t->next)
+    lexer_consume(L);
+    
+state_data_again:
+    switch(L->next)
     {
+        // A newline, U+0009 CHARACTER TABULATION, or U+0020 SPACE.
+        case '\n':
+        case '\t':
+        case ' ':
+            lexer_consume(L);
+            goto state_data_again;
+            
         case '"':
-            t->state = state_double_quoted_string;
+            lexer_consume(L);
+            L->state = state_double_quoted_string;
             break;
 
         case '\'':
-            t->state = state_single_quoted_string;
+            L->state = state_single_quoted_string;
             break;
 
-        case '(':
-            // skip
-            return TOKEN_PAREN_LEFT;
-
-        case ')':
-            // skip
-            return TOKEN_PAREN_RIGHT;
-
         case ',':
-            // skip
             return TOKEN_COMMA;
 
         case ':':
-            // skip
             return TOKEN_COLON;
             
-    }
+        case ';':
+            return TOKEN_SEMICOLON;
 
-    return 0;
+        case '(':
+            return TOKEN_PAREN_LEFT;
+
+        case ')':
+            return TOKEN_PAREN_RIGHT;
+            
+        case '{':
+            return TOKEN_LEFT_CURLY;
+            
+        case '}':
+            return TOKEN_RIGHT_CURLY;
+            
+        case '[':
+            return TOKEN_LEFT_SQUARE;
+            
+        case ']':
+            return TOKEN_RIGHT_SQUARE;
+            
+        default:
+            break;
+            
+    }
+    printf("Unexpected intput %c\n", L->next);
+    return TOKEN_NONE;
 }
 
-void tokeniser_init(struct tokeniser* t, FILE* input)
+void lexer_init(struct lexer* L, FILE* input)
 {
-    t->input = input;
-    t->current = 0;
-    t->state = state_data;
+    L->input   = input;
+    L->current = 0;
+    L->next    = 0;
+    L->state   = state_data;
+}
+
+int lexer_next(struct lexer* L)
+{
+    int token = L->state(L);
+    printf("Emiited token %d\n", token);
+    return token;
 }
 
 int main(int argc, const char * argv[])
 {
-    struct tokeniser t;
-    tokeniser_init(&t, stdin);
+    struct lexer L;
+    lexer_init(&L, stdin);
 
     for (;;)
     {
-        t.state(&t);
+        int token = lexer_next(&L);
+        if (token == TOKEN_NONE)
+        {
+            break;
+        }
     }
 
     return 0;
