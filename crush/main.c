@@ -11,14 +11,28 @@ struct lexer {
     unsigned current;
     unsigned next;
     state state;
+    unsigned line;
+    unsigned column;
 };
+
+char p(char c){
+    // TODO: UNICODE.
+    return c == '\n' ? '^' : c;
+}
 
 void lexer_consume(struct lexer* L)
 {
     // consume
     L->current = L->next;
     L->next = fgetc(L->input);
-    printf("Consuming '%c'; next is '%c'\n", L->current, L->next);
+    printf("Line %d:%d: Consuming %c (0x%02X); next is %c (0x%02X)\n",
+           L->line, L->column, p(L->current), L->current, p(L->next), L->next);
+
+    L->column++;
+    if (L->next == '\n'){
+        L->line++;
+        L->column = 0;
+    }
 }
 
 enum
@@ -68,24 +82,84 @@ int state_single_quoted_string(struct lexer* t)
     return 0;
 }
 
+int state_data(struct lexer* L);
+
+void lexer_trace(struct lexer* L, const char* state){
+    printf("%d:%d %s\n", L->line, L->column, state);
+}
+
+#define TRACE(L) lexer_trace(L, __FUNCTION__)
+
+int state_comment(struct lexer* L)
+{
+state_comment_again:
+
+    TRACE(L);
+
+    lexer_consume(L);
+
+    switch (L->current){
+
+        case '*':
+        {
+            if (L->next == '/'){
+                lexer_consume(L);
+                L->state = state_data;
+                return L->state(L);
+            } else {
+                // stay in this state
+                goto state_comment_again;
+            }
+        }
+
+        case EOF:
+        {
+            // lexer_recomsume() // TODO
+            return TOKEN_NONE;
+        }
+
+        default:{
+            goto state_comment_again;
+        }
+    }
+
+    return TOKEN_NONE;
+}
+
 int state_data(struct lexer* L)
 {
-    lexer_consume(L);
-    
 state_data_again:
-    switch(L->next)
+    TRACE(L);
+    lexer_consume(L);
+
+
+    switch(L->current)
     {
         // A newline, U+0009 CHARACTER TABULATION, or U+0020 SPACE.
         case '\n':
         case '\t':
         case ' ':
-            lexer_consume(L);
+            // TODO: chomp
+            //lexer_consume(L);
             goto state_data_again;
             
         case '"':
             lexer_consume(L);
             L->state = state_double_quoted_string;
             break;
+
+        case '/':
+            if (L->next == '*')
+            {
+                lexer_consume(L);
+                L->state = state_comment;
+                return L->state(L);
+                break;
+            }
+            else
+            {
+                return TOKEN_DELIM; // todo: value <= solidus (/)
+            }
 
         case '\'':
             L->state = state_single_quoted_string;
@@ -122,7 +196,7 @@ state_data_again:
             break;
             
     }
-    printf("Unexpected intput %c\n", L->next);
+    printf("Unexpected input %c (0x%02X)\n", p(L->current), L->current);
     return TOKEN_NONE;
 }
 
@@ -130,8 +204,10 @@ void lexer_init(struct lexer* L, FILE* input)
 {
     L->input   = input;
     L->current = 0;
-    L->next    = 0;
+    L->next    = fgetc(input);
     L->state   = state_data;
+    L->column  = 0;
+    L->line    = 0;
 }
 
 int lexer_next(struct lexer* L)
