@@ -1,6 +1,6 @@
 #include <stdio.h>
 //#include <stdint.h>
-//#include <stdlib.h>
+#include <stdlib.h>
 //#include <string.h>
 #include <stdbool.h>
 #include <ctype.h>
@@ -9,7 +9,7 @@
 
 
 struct lexer;
-typedef int(*state)(struct lexer*);
+typedef struct token*(*state)(struct lexer*);
 
 struct lexer {
     FILE* input;
@@ -18,6 +18,7 @@ struct lexer {
     state state;
     unsigned line;
     unsigned column;
+    
 };
 
 char p(char c){
@@ -34,6 +35,17 @@ enum {
     CHAR_HYPHEN_MINUS    = 0x2D,
     CHAR_REPLACEMENT     = 0xFFFD,
 };
+
+struct token {
+    int       type;
+    unsigned* buffer;
+};
+
+struct token* token_new(int type) {
+    struct token* t = calloc(1, sizeof(struct token));
+    t->type = type;
+    return t;
+}
 
 /*
  3.2.1. Preprocessing the input stream
@@ -128,8 +140,8 @@ enum
     TOKEN_RIGHT_CURLY
 };
 
-const char* token_name(int token){
-    switch (token){
+const char* token_name(struct token* t){
+    switch (t->type){
 #define NAME(X) case (X): return #X;
         NAME(TOKEN_NONE);
         NAME(TOKEN_IDENT);
@@ -168,17 +180,17 @@ const char* token_name(int token){
     return "";
 }
 
-int state_double_quoted_string(struct lexer* t)
+struct token* state_double_quoted_string(struct lexer* t)
 {
     return 0;
 }
 
-int state_single_quoted_string(struct lexer* t)
+struct token* state_single_quoted_string(struct lexer* t)
 {
     return 0;
 }
 
-int state_data(struct lexer* L);
+struct token* state_data(struct lexer* L);
 
 void lexer_trace(struct lexer* L, const char* state){
     printf("%d:%d %s\n", L->line, L->column, state);
@@ -186,7 +198,7 @@ void lexer_trace(struct lexer* L, const char* state){
 
 #define TRACE(L) lexer_trace(L, __FUNCTION__)
 
-int state_comment(struct lexer* L)
+struct token* state_comment(struct lexer* L)
 {
 state_comment_again:
 
@@ -222,6 +234,17 @@ state_comment_again:
     return TOKEN_NONE;
 }
 
+static bool whitespace(unsigned c) {
+    switch (c) {
+        case CHAR_LINE_FEED:
+        case '\t':
+        case ' ':
+            return true;
+        default:
+            return false;
+    }
+}
+
 static bool name_start_character(unsigned c){
     return isalpha(c) || (!isascii(c));
 }
@@ -231,7 +254,7 @@ static bool name_character(unsigned c){
 }
 
 
-int state_ident(struct lexer* L) {
+struct token* state_ident(struct lexer* L) {
     TRACE(L);
     lexer_consume(L);
 
@@ -259,17 +282,17 @@ int state_ident(struct lexer* L) {
     if (L->current == '(') {
         // TODO: check for URL.
         L->state = state_data;
-        return TOKEN_FUNCTION; // TODO: value <- ident
+        token_new(TOKEN_FUNCTION); // TODO: value <- ident
     }
 
     // anything else
     // Emit the 〈ident〉. Switch to the data state. Reconsume the current input character.
     L->state = state_data;
     lexer_recomsume(L);
-    return TOKEN_IDENT; // TODO:
+    return token_new(TOKEN_IDENT); // TODO:
 }
 
-int state_data(struct lexer* L)
+struct token* state_data(struct lexer* L)
 {
     TRACE(L);
     lexer_consume(L);
@@ -281,18 +304,19 @@ int state_data(struct lexer* L)
         case CHAR_LINE_FEED:
         case '\t':
         case ' ':
-            // TODO: chomp
-            return state_data(L);
+            while(whitespace(L->next)){
+                lexer_consume(L);
+            }
+            return token_new(TOKEN_WHITESPACE);
 
         case '$':
             if (L->next == '=') {
                 lexer_consume(L);
-                return TOKEN_SUFFIX_MATCH;
+                return token_new(TOKEN_SUFFIX_MATCH);
             }
-            return TOKEN_DELIM; // todo: value <- current char
+            return token_new(TOKEN_DELIM); // todo: value <- current char
             
         case '"':
-            lexer_consume(L);
             L->state = state_double_quoted_string;
             break;
 
@@ -306,7 +330,7 @@ int state_data(struct lexer* L)
             }
             else
             {
-                return TOKEN_DELIM; // todo: value <= solidus (/)
+                return token_new(TOKEN_DELIM); // todo: value <= solidus (/)
             }
 
         case '\'':
@@ -314,31 +338,31 @@ int state_data(struct lexer* L)
             break;
 
         case ',':
-            return TOKEN_COMMA;
+            return token_new(TOKEN_COMMA);
 
         case ':':
-            return TOKEN_COLON;
+            return token_new(TOKEN_COLON);
             
         case ';':
-            return TOKEN_SEMICOLON;
+            return token_new(TOKEN_SEMICOLON);
 
         case '(':
-            return TOKEN_PAREN_LEFT;
+            return token_new(TOKEN_PAREN_LEFT);
 
         case ')':
-            return TOKEN_PAREN_RIGHT;
+            return token_new(TOKEN_PAREN_RIGHT);
             
         case '{':
-            return TOKEN_LEFT_CURLY;
+            return token_new(TOKEN_LEFT_CURLY);
             
         case '}':
-            return TOKEN_RIGHT_CURLY;
+            return token_new(TOKEN_RIGHT_CURLY);
             
         case '[':
-            return TOKEN_LEFT_SQUARE;
+            return token_new(TOKEN_LEFT_SQUARE);
             
         case ']':
-            return TOKEN_RIGHT_SQUARE;
+            return token_new(TOKEN_RIGHT_SQUARE);
             
         default:
             if (name_start_character(L->current)) {
@@ -350,7 +374,7 @@ int state_data(struct lexer* L)
             
     }
     printf("Unexpected input %c (0x%02X)\n", p(L->current), L->current);
-    return TOKEN_NONE;
+    return token_new(TOKEN_NONE);
 }
 
 void lexer_init(struct lexer* L, FILE* input)
@@ -363,11 +387,11 @@ void lexer_init(struct lexer* L, FILE* input)
     L->line    = 1;
 }
 
-int lexer_next(struct lexer* L)
+struct token* lexer_next(struct lexer* L)
 {
-    int token = L->state(L);
-    printf("Emiited token %s\n", token_name(token));
-    return token;
+    struct token* t = L->state(L);
+    printf("> Emited token %s\n", token_name(t));
+    return t;
 }
 
 int main(int argc, const char * argv[])
@@ -377,8 +401,8 @@ int main(int argc, const char * argv[])
 
     for (;;)
     {
-        int token = lexer_next(&L);
-        if (token == TOKEN_NONE)
+        struct token* token = lexer_next(&L);
+        if (token->type == TOKEN_NONE)
         {
             break;
         }
