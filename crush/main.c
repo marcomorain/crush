@@ -29,12 +29,18 @@ struct lexer {
         unsigned  size;
         unsigned  initial[LEX_BUF_INIT_MAX];
     } buffer;
+    
+    struct {
+        bool consumtion;
+        bool trace;
+    } logging;
 };
 
 char p(char c){
     // TODO: UNICODE.
     return c == '\n' ? '^' : c;
 }
+
 
 
 enum {
@@ -47,6 +53,7 @@ enum {
     CHAR_PLUS_SIGN       = 0x2B,
     CHAR_HYPHEN_MINUS    = 0x2D,
     CHAR_FULL_STOP       = 0x2E,
+    CHAR_COMMERCIAL_AT   = 0x40,
     CHAR_LATIN_CAPITAL_E = 0x45,
     CHAR_REVERSE_SOLIDUS = 0x5C,
     CHAR_LATIN_SMALL_E   = 0x65,
@@ -117,7 +124,9 @@ static unsigned lexer_preprocess(FILE* input) {
 
 void lexer_recomsume(struct lexer* L)
 {
-    printf("Line %d:%d: unconsuming %c (0x%02X)\n", L->line, L->column, p(L->current), L->current);
+    if (L->logging.consumtion) {
+        printf("Line %d:%d: unconsuming %c (0x%02X)\n", L->line, L->column, p(L->current), L->current);
+    }
     ungetc(L->next, L->input);
     L->next = L->current;
     L->current = CHAR_NULL;
@@ -130,8 +139,10 @@ void lexer_consume(struct lexer* L)
     L->current = L->next;
     L->next = lexer_preprocess(L->input);
 
-    printf("Line %d:%d: Consuming %c (0x%02X); next is %c (0x%02X)\n",
-           L->line, L->column, p(L->current), L->current, p(L->next), L->next);
+    if (L->logging.consumtion) {
+        printf("Line %d:%d: Consuming %c (0x%02X); next is %c (0x%02X)\n",
+               L->line, L->column, p(L->current), L->current, p(L->next), L->next);
+    }
 
     L->column++;
     if (L->current == CHAR_LINE_FEED){
@@ -229,7 +240,9 @@ struct token* state_single_quoted_string(struct lexer* t)
 struct token* state_data(struct lexer* L);
 
 void lexer_trace(struct lexer* L, const char* state) {
-    printf("%d:%d %s\n", L->line, L->column, state);
+    if (L->logging.trace) {
+        printf("%d:%d %s\n", L->line, L->column, state);
+    }
 }
 
 #define TRACE(L) lexer_trace(L, __FUNCTION__)
@@ -324,7 +337,18 @@ static bool would_start_ident(unsigned first, unsigned second, unsigned third) {
 static bool lexer_would_start_ident(struct lexer* L) {
     return would_start_ident(L->current, L->next, peek(L->input));
 }
+
+static bool lexer_next_would_start_ident(struct lexer* L) {
+    unsigned a,b,c;
+    a = L->next;
+    b = fgetc(L->input);
+    c = fgetc(L->input);
+    ungetc(c, L->input);
+    ungetc(b, L->input);
     
+    return would_start_ident(a, b, c);
+}
+
 
 struct token* state_number_end(struct lexer* L)
 {
@@ -526,42 +550,9 @@ state_comment_again:
     return TOKEN_NONE;
 }
 
-struct token* state_ident(struct lexer* L) {
-    TRACE(L);
-    lexer_consume(L);
-
-    if (name_character(L->current)){
-        printf("TODO: append %c to buffer\n", L->current);
-        return L->state(L);
-    }
-
-    if (L->current == '\\'){
-        // TODO deal with this.
-        /*
-        U+005C REVERSE SOLIDUS (\)
-        If the input stream starts with a valid escape, consume an escaped character. Append the returned character to the <input>’s value. Remain in this state.
-        Otherwise, emit the <ident>. Switch to the data state. Reconsume the current input character.
-         */
-        return TOKEN_NONE;
-    }
-
-    /*
-     U+0028 LEFT PARENTHESIS (()
-     If the <ident>’s value is an ASCII case-insensitive match for "url", switch to the url state.
-     Otherwise, emit a <function> token with its value set to the <ident>’s value. Switch to the data state.
-     */
-
-    if (L->current == '(') {
-        // TODO: check for URL.
-        L->state = state_data;
-        token_new(TOKEN_FUNCTION); // TODO: value <- ident
-    }
-
-    // anything else
-    // Emit the <ident>. Switch to the data state. Reconsume the current input character.
-    L->state = state_data;
-    lexer_recomsume(L);
-    return token_new(TOKEN_IDENT); // TODO:
+unsigned char hex_to_byte(unsigned hex_char){
+    hex_char = toupper(hex_char);
+    return hex_char > '9' ? hex_char - 'A' + 10 : hex_char - '0';
 }
 
 // 4.4.1. Consume an escaped character
@@ -583,10 +574,6 @@ struct token* state_ident(struct lexer* L) {
 //
 // anything else:
 // Return the current input character.
-unsigned char hex_to_byte(unsigned hex_char){
-    hex_char = toupper(hex_char);
-    return hex_char > '9' ? hex_char - 'A' + 10 : hex_char - '0';
-}
 
 unsigned lexer_consume_escape(struct lexer* L) {
     assert(L->current == CHAR_REVERSE_SOLIDUS);
@@ -608,6 +595,54 @@ unsigned lexer_consume_escape(struct lexer* L) {
     }
     return result;
 }
+
+struct token* state_ident(struct lexer* L) {
+    TRACE(L);
+    lexer_consume(L);
+
+    if (name_character(L->current)){
+        lexer_push(L, L->current);
+        return L->state(L);
+    }
+
+    if (L->current == CHAR_REVERSE_SOLIDUS) {
+        // If the input stream starts with a valid escape, consume an escaped
+        // character.
+        // Append the returned character to the <input>’s value.
+        // Remain in this state.
+        if (lexer_valid_escape(L)) {
+            lexer_push(L, lexer_consume_escape(L));
+            return L->state(L);
+        }
+        
+        // Otherwise, emit the <ident>. Switch to the data state. Reconsume the
+        // current input character.
+        lexer_recomsume(L);
+        L->state = state_data;
+        return token_new(TOKEN_IDENT); // TODO: value <= here
+    }
+
+    /*
+     U+0028 LEFT PARENTHESIS (()
+     If the <ident>’s value is an ASCII case-insensitive match for "url", switch to the url state.
+     Otherwise, emit a <function> token with its value set to the <ident>’s value. Switch to the data state.
+     */
+
+    if (L->current == '(') {
+        // TODO: check for URL.
+        L->state = state_data;
+        token_new(TOKEN_FUNCTION); // TODO: value <- ident
+    }
+
+    // anything else
+    // Emit the <ident>. Switch to the data state. Reconsume the current input character.
+    L->state = state_data;
+    lexer_recomsume(L);
+    return token_new(TOKEN_IDENT); // TODO:
+}
+
+
+
 
 // 4.3.4. Hash state
 // Consume the next input character.
@@ -649,6 +684,55 @@ struct token* state_hash(struct lexer* L){
             lexer_recomsume(L);
             return token_new(TOKEN_HASH); // todo: value
     }
+}
+
+// 4.3.6. At-keyword state
+//
+// When this state is first entered, create an 〈at-keyword〉 token with its value
+// initially set to the empty string.
+//
+// Consume the next input character.
+//
+struct token* state_at_keyword(struct lexer* L)
+{
+    TRACE(L);
+    lexer_consume(L);
+
+    // name character:
+    // Append the current input character to the 〈at-keyword〉’s value. Remain
+    // in this state.
+    if (name_character(L->current)){
+        lexer_push(L, L->current);
+        // todo: don't recurse
+        return L->state(L);
+    }
+
+    // U+005C REVERSE SOLIDUS (\):
+    if (L->current == CHAR_REVERSE_SOLIDUS) {
+        // If the input stream starts with a valid escape, consume an escaped
+        // character Append the returned character to the 〈at-keyword〉’s value.
+        // Remain in this state.
+        if (lexer_valid_escape(L)) {
+            lexer_push(L, lexer_consume_escape(L));
+            return L->state(L);
+        }
+        // Otherwise, emit the 〈at-keyword〉. Switch to the data state. Reconsume
+        // the current input character.
+        L->state = state_data;
+        lexer_recomsume(L);
+        return token_new(TOKEN_AT_KEYWORD); // todo: value
+        
+    }
+    
+    // anything else:
+    // Emit the 〈at-keyword〉. Switch to the data state.
+    // Reconsume the current input character.
+    // If this state emits an 〈at-keyword〉 whose value is the empty string, it's
+    // a spec or implementation error. The data validation performed in the data
+    // state should have guaranteed a non-empty value.
+    L->state = state_data;
+    lexer_recomsume(L);
+    return token_new(TOKEN_AT_KEYWORD);
 }
 
 struct token* state_data(struct lexer* L)
@@ -729,6 +813,19 @@ struct token* state_data(struct lexer* L)
         case '}':
             return token_new(TOKEN_RIGHT_CURLY);
             
+        case CHAR_COMMERCIAL_AT:
+            // If the next 3 input characters would start an identifier, switch
+            // to the at-keyword state.
+            if (lexer_next_would_start_ident(L)){
+                L->state = state_at_keyword;
+                return L->state(L);
+            }
+            
+            // Otherwise, emit a 〈delim〉 token with its value set to the current
+            // input character. Remain in this state.
+            return token_new(TOKEN_DELIM); // value <- '@'
+            
+            
         case '[':
             return token_new(TOKEN_LEFT_SQUARE);
             
@@ -750,7 +847,7 @@ struct token* state_data(struct lexer* L)
             break;
             
     }
-    printf("Unexpected input %c (0x%02X)\n", p(L->current), L->current);
+    printf("Unexpected input at line %d:%d %c (0x%02X)\n", L->line, L->column, p(L->current), L->current);
     return token_new(TOKEN_NONE);
 }
 
@@ -758,15 +855,12 @@ void lexer_init(struct lexer* L, FILE* input)
 {
     memset(L, 0, sizeof(struct lexer));
     L->input   = input;
-    L->current = 0;
     L->next    = fgetc(input);
     L->state   = state_data;
-    L->column  = 0;
     L->line    = 1;
     
     // Premature optimization of course.
     L->buffer.data     = L->buffer.initial;
-    L->buffer.size     = 0;
     L->buffer.capacity = LEX_BUF_INIT_MAX;
 }
 
@@ -789,6 +883,8 @@ int main(int argc, const char * argv[])
     }
 
     lexer_init(&L, input);
+    
+    //L.logging.consumtion = true;
 
     for (;;)
     {
