@@ -66,11 +66,6 @@ struct token {
     unsigned* buffer;
 };
 
-struct token* token_new(int type) {
-    struct token* t = calloc(1, sizeof(struct token));
-    t->type  = type;
-    return t;
-}
 
 void lexer_grow(struct lexer* L)
 {
@@ -83,6 +78,7 @@ void lexer_grow(struct lexer* L)
     }
 
 }
+
 void lexer_push(struct lexer* L, unsigned c) {
     if (L->buffer.size == L->buffer.capacity) {
         lexer_grow(L);
@@ -226,6 +222,25 @@ const char* token_name(struct token* t){
     }
     return "";
 }
+
+struct token* token_new(struct lexer* L, int type) {
+    struct token* t = calloc(1, sizeof(struct token));
+    t->type   = type;
+    
+    printf("> Emited token %s ", token_name(t));
+    
+    if (L->buffer.size > 0) {
+        printf("value: \"");
+        for (int i = 0;i< L->buffer.size; i++){
+            printf("%c", p(L->buffer.data[i]));
+        }
+        printf("\"");
+        L->buffer.size = 0;
+    }
+    printf("\n");
+    return t;
+}
+
 
 struct token* state_double_quoted_string(struct lexer* t)
 {
@@ -400,7 +415,7 @@ struct token* state_number_end(struct lexer* L)
     
     switch (L->current){
         case CHAR_PERCENT_SIGN:
-            return token_new(TOKEN_PERCENTAGE); // TODO: value <- number value
+            return token_new(L, TOKEN_PERCENTAGE); // TODO: value <- number value
             
         case CHAR_HYPHEN_MINUS:
             // If the input stream starts with an identifier, create a
@@ -413,7 +428,7 @@ struct token* state_number_end(struct lexer* L)
                 // todo  <- value
                 // todo  <- dimention
                 // todo: <- unit
-                return token_new(TOKEN_DIMENSION);
+                return token_new(L, TOKEN_DIMENSION);
             }
             goto state_number_end_default;
         
@@ -424,7 +439,7 @@ struct token* state_number_end(struct lexer* L)
             // its type flag set to the 〈number〉’s type flag, and a unit initially
             // set to the returned character. Switch to the dimension state.
             if (lexer_valid_escape(L)){
-                return token_new(TOKEN_DIMENSION); // todo: < number value
+                return token_new(L, TOKEN_DIMENSION); // todo: < number value
             } else
                 goto state_number_end_default;
             
@@ -434,7 +449,7 @@ struct token* state_number_end(struct lexer* L)
 state_number_end_default:
             lexer_recomsume(L);
             L->state = state_data;
-            return token_new(TOKEN_NUMBER); // todo value <- number
+            return token_new(L, TOKEN_NUMBER); // todo value <- number
 
     }
     
@@ -479,7 +494,7 @@ struct token* state_number_rest(struct lexer* L) {
             puts("emit a number!");
             L->state = state_data;
             lexer_recomsume(L);
-            return token_new(TOKEN_NUMBER); // TODO: a value
+            return token_new(L, TOKEN_NUMBER); // TODO: a value
         }
             
         case CHAR_LATIN_CAPITAL_E:
@@ -662,7 +677,7 @@ struct token* state_ident(struct lexer* L) {
         // current input character.
         lexer_recomsume(L);
         L->state = state_data;
-        return token_new(TOKEN_IDENT); // TODO: value <= here
+        return token_new(L, TOKEN_IDENT); // TODO: value <= here
     }
 
     /*
@@ -674,14 +689,14 @@ struct token* state_ident(struct lexer* L) {
     if (L->current == '(') {
         // TODO: check for URL.
         L->state = state_data;
-        token_new(TOKEN_FUNCTION); // TODO: value <- ident
+        token_new(L, TOKEN_FUNCTION); // TODO: value <- ident
     }
 
     // anything else
     // Emit the <ident>. Switch to the data state. Reconsume the current input character.
     L->state = state_data;
     lexer_recomsume(L);
-    return token_new(TOKEN_IDENT); // TODO:
+    return token_new(L, TOKEN_IDENT); // TODO:
 }
 
 
@@ -720,12 +735,12 @@ struct token* state_hash(struct lexer* L){
             fprintf(stderr, "Parse error line %d:%d", L->line, L->column);
             L->state = state_data;
             lexer_recomsume(L);
-            return token_new(TOKEN_HASH); // todo: value
+            return token_new(L, TOKEN_HASH); // todo: value
             
         default:
             L->state = state_data;
             lexer_recomsume(L);
-            return token_new(TOKEN_HASH); // todo: value
+            return token_new(L, TOKEN_HASH); // todo: value
     }
 }
 
@@ -763,7 +778,7 @@ struct token* state_at_keyword(struct lexer* L)
         // the current input character.
         L->state = state_data;
         lexer_recomsume(L);
-        return token_new(TOKEN_AT_KEYWORD); // todo: value
+        return token_new(L, TOKEN_AT_KEYWORD); // todo: value
         
     }
     
@@ -775,7 +790,7 @@ struct token* state_at_keyword(struct lexer* L)
     // state should have guaranteed a non-empty value.
     L->state = state_data;
     lexer_recomsume(L);
-    return token_new(TOKEN_AT_KEYWORD);
+    return token_new(L, TOKEN_AT_KEYWORD);
 }
 
 struct token* state_data(struct lexer* L)
@@ -793,7 +808,7 @@ struct token* state_data(struct lexer* L)
             while(whitespace(L->next)){
                 lexer_consume(L);
             }
-            return token_new(TOKEN_WHITESPACE);
+            return token_new(L, TOKEN_WHITESPACE);
             
         case '"':
             L->state = state_double_quoted_string;
@@ -809,24 +824,24 @@ struct token* state_data(struct lexer* L)
             if (name_character(L->next)) {
                 // TODO: there are three more cases here.
                 L->state = state_hash;
-                return token_new(TOKEN_HASH); // todo: type id
+                return token_new(L, TOKEN_HASH); // todo: type id
             }
             
-            return token_new(TOKEN_DELIM); // todo: value <- current
+            return token_new(L, TOKEN_DELIM); // todo: value <- current
             
         case '$':
             if (L->next == '=') {
                 lexer_consume(L);
-                return token_new(TOKEN_SUFFIX_MATCH);
+                return token_new(L, TOKEN_SUFFIX_MATCH);
             }
-            return token_new(TOKEN_DELIM); // todo: value <- current char            
+            return token_new(L, TOKEN_DELIM); // todo: value <- current char            
 
         case '\'':
             L->state = state_single_quoted_string;
             break;
 
         case ',':
-            return token_new(TOKEN_COMMA);
+            return token_new(L, TOKEN_COMMA);
 
         case CHAR_FULL_STOP:
             // If the input stream starts with a number, reconsume the current
@@ -838,7 +853,7 @@ struct token* state_data(struct lexer* L)
             }
             // Otherwise, emit a <delim> token with its value set to the current
             // input character. Remain in this state.
-            return token_new(TOKEN_DELIM); // todo: value <= '.'
+            return token_new(L, TOKEN_DELIM); // todo: value <= '.'
 
         case '/':
             if (L->next == '*')
@@ -848,25 +863,25 @@ struct token* state_data(struct lexer* L)
                 return L->state(L);
             }
             
-            return token_new(TOKEN_DELIM); // todo: value <= solidus (/)
+            return token_new(L, TOKEN_DELIM); // todo: value <= solidus (/)
 
         case ':':
-            return token_new(TOKEN_COLON);
+            return token_new(L, TOKEN_COLON);
             
         case ';':
-            return token_new(TOKEN_SEMICOLON);
+            return token_new(L, TOKEN_SEMICOLON);
 
         case '(':
-            return token_new(TOKEN_PAREN_LEFT);
+            return token_new(L, TOKEN_PAREN_LEFT);
 
         case ')':
-            return token_new(TOKEN_PAREN_RIGHT);
+            return token_new(L, TOKEN_PAREN_RIGHT);
             
         case '{':
-            return token_new(TOKEN_LEFT_CURLY);
+            return token_new(L, TOKEN_LEFT_CURLY);
             
         case '}':
-            return token_new(TOKEN_RIGHT_CURLY);
+            return token_new(L, TOKEN_RIGHT_CURLY);
             
         case CHAR_COMMERCIAL_AT:
             // If the next 3 input characters would start an identifier, switch
@@ -878,17 +893,17 @@ struct token* state_data(struct lexer* L)
             
             // Otherwise, emit a 〈delim〉 token with its value set to the current
             // input character. Remain in this state.
-            return token_new(TOKEN_DELIM); // value <- '@'
+            return token_new(L, TOKEN_DELIM); // value <- '@'
             
             
         case '[':
-            return token_new(TOKEN_LEFT_SQUARE);
+            return token_new(L, TOKEN_LEFT_SQUARE);
             
         case ']':
-            return token_new(TOKEN_RIGHT_SQUARE);
+            return token_new(L, TOKEN_RIGHT_SQUARE);
             
         case CHAR_EOF:
-            return token_new(TOKEN_NONE);
+            return token_new(L, TOKEN_NONE);
             
         default:
             if (name_start_character(L->current)) {
@@ -906,7 +921,7 @@ struct token* state_data(struct lexer* L)
             
     }
     printf("Unexpected input at line %d:%d %c (0x%02X)\n", L->line, L->column, p(L->current), L->current);
-    return token_new(TOKEN_NONE);
+    return token_new(L, TOKEN_NONE);
 }
 
 void lexer_init(struct lexer* L, FILE* input)
@@ -924,9 +939,7 @@ void lexer_init(struct lexer* L, FILE* input)
 
 struct token* lexer_next(struct lexer* L)
 {
-    struct token* t = L->state(L);
-    printf("> Emited token %s\n", token_name(t));
-    return t;
+    return  L->state(L);
 }
 
 int main(int argc, const char * argv[])
