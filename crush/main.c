@@ -887,6 +887,9 @@ struct token* state_data(struct lexer* L)
         case ']':
             return token_new(TOKEN_RIGHT_SQUARE);
             
+        case CHAR_EOF:
+            return token_new(TOKEN_NONE);
+            
         default:
             if (name_start_character(L->current)) {
                 lexer_recomsume(L);
@@ -940,6 +943,7 @@ int main(int argc, const char * argv[])
     lexer_init(&L, input);
     
     //L.logging.consumtion = true;
+    //L.logging.trace = true;
 
     for (;;)
     {
