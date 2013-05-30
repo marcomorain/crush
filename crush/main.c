@@ -349,6 +349,49 @@ static bool lexer_next_would_start_ident(struct lexer* L) {
     return would_start_ident(a, b, c);
 }
 
+// 4.4.6. Check if three characters would start a number
+
+// This section describes how to check if three characters would start a number.
+// The algorithm described here can be called explicitly with three characters,
+// or can be called with the input stream itself.
+// In the latter case, the three characters in question are the current input
+// character and the next two input characters, in that order.
+//
+// This algorithm will not consume any additional characters.
+//
+static bool starts_with_number(unsigned a, unsigned b, unsigned c)
+{
+    // Look at the first character:
+    switch (a) {
+        case CHAR_PLUS_SIGN:
+        case CHAR_HYPHEN_MINUS:
+            // If the second character is a digit, return true.
+            if (isdigit(b)){
+                return true;
+            }
+            
+            // Otherwise, if the second character is a U+002E FULL STOP (.) and
+            // the third character is a digit, return true.
+            if (b == CHAR_FULL_STOP && isdigit(c)){
+                return true;
+            }
+            
+            return false;
+            
+        case CHAR_FULL_STOP:
+            // If the second character is a digit, return true. Otherwise, return false.
+            return isdigit(b);
+            
+        default:
+            // digit: Return true.
+            // anything else: Return false.
+            return isdigit(a);
+    }
+}
+
+static bool lexer_starts_with_number(struct lexer* L) {
+    return starts_with_number(L->current, L->next, peek(L->input));
+}
 
 struct token* state_number_end(struct lexer* L)
 {
@@ -776,7 +819,26 @@ struct token* state_data(struct lexer* L)
                 lexer_consume(L);
                 return token_new(TOKEN_SUFFIX_MATCH);
             }
-            return token_new(TOKEN_DELIM); // todo: value <- current char
+            return token_new(TOKEN_DELIM); // todo: value <- current char            
+
+        case '\'':
+            L->state = state_single_quoted_string;
+            break;
+
+        case ',':
+            return token_new(TOKEN_COMMA);
+
+        case CHAR_FULL_STOP:
+            // If the input stream starts with a number, reconsume the current
+            // input character and switch to the number state.
+            if (lexer_starts_with_number(L)) {
+                lexer_recomsume(L);
+                L->state = state_number;
+                return L->state(L);
+            }
+            // Otherwise, emit a <delim> token with its value set to the current
+            // input character. Remain in this state.
+            return token_new(TOKEN_DELIM); // todo: value <= '.'
 
         case '/':
             if (L->next == '*')
@@ -787,13 +849,6 @@ struct token* state_data(struct lexer* L)
             }
             
             return token_new(TOKEN_DELIM); // todo: value <= solidus (/)
-
-        case '\'':
-            L->state = state_single_quoted_string;
-            break;
-
-        case ',':
-            return token_new(TOKEN_COMMA);
 
         case ':':
             return token_new(TOKEN_COLON);
