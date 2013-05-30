@@ -36,11 +36,13 @@ char p(char c){
     return c == '\n' ? '^' : c;
 }
 
+
 enum {
     CHAR_NULL            = 0,
     CHAR_LINE_FEED       = 0xA,
     CHAR_FORM_FEED       = 0xC,
     CHAR_CARRIAGE_RETURN = 0xD,
+    CHAR_NUMBER_SIGN     = 0x23,
     CHAR_PERCENT_SIGN    = 0x25,
     CHAR_PLUS_SIGN       = 0x2B,
     CHAR_HYPHEN_MINUS    = 0x2D,
@@ -562,6 +564,93 @@ struct token* state_ident(struct lexer* L) {
     return token_new(TOKEN_IDENT); // TODO:
 }
 
+// 4.4.1. Consume an escaped character
+//
+// This section describes how to consume an escaped character. It assumes that
+// the U+005C REVERSE SOLIDUS (\) has already been consumed and that the next
+// input character has already been verified to not be a newline or EOF. It will
+// return a character.
+//
+// Consume the next input character.
+//
+// hex digit:
+// Consume as many hex digits as possible, but no more than 5. Note that this
+// means 1-6 hex digits have been consumed in total. If the next input character
+// is whitespace, consume it as well. Interpret the hex digits as a hexadecimal
+// number. If this number is zero, or is greater than the maximum allowed
+// codepoint, return U+FFFD REPLACEMENT CHARACTER (). Otherwise, return the
+// character with that codepoint.
+//
+// anything else:
+// Return the current input character.
+unsigned char hex_to_byte(unsigned hex_char){
+    hex_char = toupper(hex_char);
+    return hex_char > '9' ? hex_char - 'A' + 10 : hex_char - '0';
+}
+
+unsigned lexer_consume_escape(struct lexer* L) {
+    assert(L->current == CHAR_REVERSE_SOLIDUS);
+    lexer_consume(L);
+    
+    // not hex
+    if (!ishexnumber(L->current)) {
+        return L->current;
+    }
+    
+    // is hex
+    unsigned result = hex_to_byte(L->current);
+    for (int i=0; i<5; i++){
+        if (ishexnumber(L->next)){
+            lexer_consume(L);
+            unsigned n = hex_to_byte(L->current);
+            result = (result << 2) | n;
+        }
+    }
+    return result;
+}
+
+// 4.3.4. Hash state
+// Consume the next input character.
+//
+// name character:
+// Append the current input character to the 〈hash〉’s value. Remain in this state.
+//
+// U+005C REVERSE SOLIDUS (\)
+// If the input stream starts with a valid escape, consume an escaped character
+// and append the returned character to the 〈hash〉’s value. Remain in this state.
+//
+// Otherwise, this is a parse error. Emit the 〈hash〉. Switch to the data state.
+// Reconsume the current input character.
+//
+// anything else:
+// Emit the <hash>. Switch to the data state. Reconsume the current input character.
+//
+// If this state emits a 〈hash〉 whose value is the empty string, it's a spec or
+// implementation error. The data validation performed in the data state should
+// have guaranteed a non-empty value.
+
+struct token* state_hash(struct lexer* L){
+    TRACE(L);
+    lexer_consume(L);
+    switch(L->current) {
+        case CHAR_REVERSE_SOLIDUS:
+            if (lexer_valid_escape(L)){
+                lexer_push(L, lexer_consume_escape(L));
+                return L->state(L);
+            }
+            
+            fprintf(stderr, "Parse error line %d:%d", L->line, L->column);
+            L->state = state_data;
+            lexer_recomsume(L);
+            return token_new(TOKEN_HASH); // todo: value
+            
+        default:
+            L->state = state_data;
+            lexer_recomsume(L);
+            return token_new(TOKEN_HASH); // todo: value
+    }
+}
+
 struct token* state_data(struct lexer* L)
 {
     TRACE(L);
@@ -582,6 +671,21 @@ struct token* state_data(struct lexer* L)
         case '"':
             L->state = state_double_quoted_string;
             break;
+            
+        case CHAR_NUMBER_SIGN:
+            // If the next input character is a name character or the next two
+            // input characters are a valid escape, If the next three input
+            // characters would start an identifier, set the 〈hash〉 token's type
+            // flag to "id". Switch to the hash state.
+            // Otherwise, emit a 〈delim〉 token with its value set to the current
+            // input character. Remain in this state.
+            if (name_character(L->next)) {
+                // TODO: there are three more cases here.
+                L->state = state_hash;
+                return token_new(TOKEN_HASH); // todo: type id
+            }
+            
+            return token_new(TOKEN_DELIM); // todo: value <- current
             
         case '$':
             if (L->next == '=') {
@@ -675,8 +779,16 @@ struct token* lexer_next(struct lexer* L)
 
 int main(int argc, const char * argv[])
 {
+    FILE* input;
     struct lexer L;
-    lexer_init(&L, stdin);
+    
+    if (argc < 2) {
+        input = stdin;
+    } else {
+        input = fopen(argv[1], "r");
+    }
+
+    lexer_init(&L, input);
 
     for (;;)
     {
