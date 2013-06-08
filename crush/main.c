@@ -267,21 +267,19 @@ void* mallocf(size_t size){
 
 struct token* token_simple(int type) {
     struct token* t = calloc(1, sizeof(struct token));
-    t->type        = type;
-    printf("> Simple token %s\n", token_name(t));
+    t->type = type;
     return t;
 }
 
 struct token* token_delim(unsigned value) {
     struct token* t = token_simple(TOKEN_DELIM);
     t->value = value;
-    printf(" delim'%c'", t->value);
     return t;
 }
 
 struct token* token_new(struct lexer* L, int type, const struct buffer* b) {
     struct token* t = token_simple(type);
-    t->id          = L->id;
+    t->id = L->id;
 
     if (b) {
         t->buffer_size = b->size;
@@ -289,26 +287,11 @@ struct token* token_new(struct lexer* L, int type, const struct buffer* b) {
         memcpy(t->buffer, b->data, b->size * sizeof(unsigned));
     }
 
-    printf("> Emited token %s ", token_name(t));
-
-    if (t->buffer_size > 0) {
-        printf("value: \"");
-        for (int i = 0;i< t->buffer_size; i++){
-            printf("%c", p(t->buffer[i]));
-        }
-        printf("\"");
-    }
-
     switch (type){
         case TOKEN_NUMBER:
         case TOKEN_PERCENTAGE:
         case TOKEN_DIMENSION:
             t->number = string_to_number(L->integer);
-            printf(" numeric value: %g", t->number);
-            break;
-
-        case TOKEN_HASH:
-            printf(" (%s)", (t->id ? "id" :  "unrestricted"));
             break;
 
         case TOKEN_DELIM:
@@ -319,9 +302,40 @@ struct token* token_new(struct lexer* L, int type, const struct buffer* b) {
             break;
     }
 
-    printf("\n");
-
     return t;
+}
+
+void token_print(struct token* t) {
+    printf("%s ", token_name(t));
+
+    if (t->buffer_size > 0) {
+        printf(" value: \"");
+        for (int i = 0;i< t->buffer_size; i++){
+            printf("%c", p(t->buffer[i]));
+        }
+        printf("\"");
+    }
+
+    switch (t->type){
+        case TOKEN_NUMBER:
+        case TOKEN_PERCENTAGE:
+        case TOKEN_DIMENSION:
+            printf(" numeric value: %g", t->number);
+            break;
+
+        case TOKEN_HASH:
+            printf(" (%s)", (t->id ? "id" :  "unrestricted"));
+            break;
+
+        case TOKEN_DELIM:
+            printf(" (%c)", t->value);
+            break;
+
+        default:
+            break;
+    }
+
+    printf("\n");
 }
 
 struct token* consume_token(struct lexer* L, struct buffer* b);
@@ -474,7 +488,7 @@ static bool starts_with_number(unsigned a, unsigned b, unsigned c)
             if (isdigit(b)){
                 return true;
             }
-            
+
             // Otherwise, if the second character is a U+002E FULL STOP (.) and
             // the third character is a digit, return true.
             if (b == CHAR_FULL_STOP && isdigit(c)){
@@ -574,7 +588,7 @@ struct token* state_ident(struct lexer* L, struct buffer* b) {
     // Otherwise, emit a <function> token with its value set to the <ident>’s value. Switch to the data state.
     if (L->current == '(') {
         // TODO: check for URL.
-        token_new(L, TOKEN_FUNCTION, b); // TODO: value <- ident
+        token_new(L, TOKEN_FUNCTION, b);
     }
 
     // anything else
@@ -703,7 +717,6 @@ struct token* state_number_rest(struct lexer* L, struct buffer* b) {
             // interpreting the <number>’s representation as a base-10 number and
             // emit it. Switch to the data state. Reconsume the current input
             // character.
-            puts("emit a number!");
             lexer_recomsume(L);
             return token_new(L, TOKEN_NUMBER, b);
         }
@@ -715,9 +728,11 @@ struct token* state_number_rest(struct lexer* L, struct buffer* b) {
             // followed by a digit, consume them. Append U+0065 LATIN SMALL
             // LETTER E (e) and the consumed characters to the 〈number〉’s
             // representation. Switch to the sci-notation state.
-            if (false){
+            if (isdigit(L->next)) {
+                lexer_consume(L);
+                buffer_push(b, CHAR_LATIN_SMALL_E);
+                buffer_push(b, L->current);
                 // TODO
-                
             }
             // Otherwise, switch to the number-end state. Reconsume the current
             // input character.
@@ -1147,6 +1162,7 @@ int main(int argc, const char * argv[])
         {
             break;
         }
+        token_print(token);
     }
 
     return 0;
