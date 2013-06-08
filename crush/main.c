@@ -68,6 +68,7 @@ enum {
     CHAR_SOLIDUS           = 0x2F,
     CHAR_LESS_THAN         = 0x3C,
     CHAR_GREATER_THAN      = 0x3E,
+    CHAR_QUESTION_MARK     = 0x3F,
     CHAR_COMMERCIAL_AT     = 0x40,
     CHAR_LATIN_CAPITAL_E   = 0x45,
     CHAR_REVERSE_SOLIDUS   = 0x5C,
@@ -87,6 +88,8 @@ struct token {
 
     unsigned* buffer;
     size_t    buffer_size;
+    
+    double number;
 };
 
 
@@ -805,6 +808,11 @@ struct token* state_at_keyword(struct lexer* L)
     return token_new(L, TOKEN_AT_KEYWORD);
 }
 
+struct token* consume_unicode_range(struct lexer* L){
+    assert(0 && "not implemented");
+    return token_new(L, TOKEN_UNICODE_RANGE);
+}
+
 
 // 4.3.4. Consume a string token
 //
@@ -1055,10 +1063,26 @@ struct token* consume_token(struct lexer* L)
                 return token_new(L, TOKEN_INCLUDE_MATCH);
             }
             return token_new(L, TOKEN_DELIM);
-            
+
+        case CHAR_LATIN_CAPITAL_E:
+        case CHAR_LATIN_SMALL_E:
+            if (L->next == CHAR_PLUS_SIGN){
+                unsigned second = peek(L->input);
+                if(ishexnumber(second) || second == CHAR_QUESTION_MARK){
+                    // consume the CHAR_PLUS_SIGN
+                    lexer_consume(L);
+                    L->state = consume_unicode_range;
+                    return L->state(L);
+                }
+            }
+            lexer_recomsume(L);
+            L->state = state_ident;
+            return L->state(L);
+
+
         case CHAR_EOF:
             return token_new(L, TOKEN_NONE);
-            
+
         default:
             if (char_name_start(L->current)) {
                 lexer_recomsume(L);
