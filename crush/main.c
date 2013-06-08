@@ -60,10 +60,12 @@ enum {
     CHAR_NUMBER_SIGN     = 0x23,
     CHAR_PERCENT_SIGN    = 0x25,
     CHAR_APOSTROPHE      = 0x27,
+    CHAR_ASTERISK        = 0x2A,
     CHAR_PLUS_SIGN       = 0x2B,
     CHAR_HYPHEN_MINUS    = 0x2D,
     CHAR_FULL_STOP       = 0x2E,
     CHAR_SOLIDUS         = 0x2F,
+    CHAR_GREATER_THAN    = 0x3E,
     CHAR_COMMERCIAL_AT   = 0x40,
     CHAR_LATIN_CAPITAL_E = 0x45,
     CHAR_REVERSE_SOLIDUS = 0x5C,
@@ -271,17 +273,13 @@ struct token* token_new(struct lexer* L, int type) {
     if (type == TOKEN_HASH){
         printf(" (%s)", (t->id ? "id" :  "unrestricted"));
     }
+
+    if (type == TOKEN_DELIM){
+        t->value = L->current;
+        printf(" '%c'", t->value);
+    }
     printf("\n");
 
-    return t;
-}
-
-struct token* token_delim(unsigned value)
-{
-    struct token* t = calloc(1, sizeof(struct token));
-    t->type  = TOKEN_DELIM;
-    t->value = value;
-    printf("> Emited token TOKEN_DELIM '%c'\n", value);
     return t;
 }
 
@@ -615,41 +613,6 @@ number:
     
 }
 
-struct token* state_comment(struct lexer* L)
-{
-state_comment_again:
-
-    TRACE(L);
-
-    lexer_consume(L);
-
-    switch (L->current){
-
-        case '*':
-        {
-            if (L->next == '/') {
-                lexer_consume(L);
-                L->state = consume_token;
-                return L->state(L);
-            } else {
-                // stay in this state
-                goto state_comment_again;
-            }
-        }
-
-        case EOF:
-        {
-            // lexer_recomsume() // TODO
-            return TOKEN_NONE;
-        }
-
-        default:{
-            goto state_comment_again;
-        }
-    }
-
-    return TOKEN_NONE;
-}
 
 unsigned char hex_to_byte(unsigned hex_char){
     hex_char = toupper(hex_char);
@@ -924,14 +887,14 @@ struct token* consume_token(struct lexer* L)
                 return token_new(L, TOKEN_HASH);
             }
             
-            return token_delim(L->current);
+            return token_new(L, TOKEN_DELIM);
             
         case '$':
             if (L->next == '=') {
                 lexer_consume(L);
                 return token_new(L, TOKEN_SUFFIX_MATCH);
             }
-            return token_delim(L->current);
+            return token_new(L, TOKEN_DELIM);
 
         case CHAR_APOSTROPHE:
             L->ending = CHAR_APOSTROPHE;
@@ -939,8 +902,50 @@ struct token* consume_token(struct lexer* L)
             return L->state(L);
             break;
 
+        case '(':
+            return token_new(L, TOKEN_PAREN_LEFT);
+
+        case ')':
+            return token_new(L, TOKEN_PAREN_RIGHT);
+
+        case CHAR_ASTERISK:
+            if (L->next == '=') {
+                lexer_consume(L);
+                return token_new(L, TOKEN_SUBSTRING_MATCH);
+            }
+            return token_new(L, TOKEN_DELIM);
+
+        case '+':
+            if (lexer_starts_with_number(L)){
+                lexer_recomsume(L);
+                L->state = state_number;
+                return L->state(L);
+            }
+            return token_new(L, TOKEN_DELIM);
+
         case ',':
             return token_new(L, TOKEN_COMMA);
+
+        case CHAR_HYPHEN_MINUS:
+            if (lexer_starts_with_number(L)){
+                lexer_recomsume(L);
+                L->state = state_number;
+                return L->state(L);
+            }
+
+            if (lexer_would_start_ident(L)){
+                lexer_recomsume(L);
+                L->state = state_ident;
+                return L->state(L);
+            }
+
+            if (L->next == CHAR_HYPHEN_MINUS && peek(L->input) == CHAR_GREATER_THAN) {
+                lexer_consume(L);
+                lexer_consume(L);
+                return token_new(L, TOKEN_CDC);
+            }
+
+            return token_new(L, TOKEN_DELIM);
 
         case CHAR_FULL_STOP:
             // If the input stream starts with a number, reconsume the current
@@ -952,28 +957,34 @@ struct token* consume_token(struct lexer* L)
             }
             // Otherwise, emit a <delim> token with its value set to the current
             // input character. Remain in this state.
-            return token_delim(L->current);
+            return token_new(L, TOKEN_DELIM);
 
         case CHAR_SOLIDUS:
-            if (L->next == '*')
-            {
+            if (L->next == CHAR_ASTERISK) {
+                // Skip a /* comment */
+                // todo: comment token? important comments.
+                printf("comment skipping: ");
                 lexer_consume(L);
-                L->state = state_comment;
+                for (;;) {
+                    printf("%c", L->next);
+                    lexer_consume(L);
+                    if (L->current == CHAR_EOF ||
+                        (L->current == CHAR_ASTERISK && L->next == CHAR_SOLIDUS)){
+                        lexer_consume(L);
+                        break;
+                    }
+                }
+                printf("\n");
+                // go again.
                 return L->state(L);
             }
-            return token_delim(L->current);
+            return token_new(L, TOKEN_DELIM);
 
         case ':':
             return token_new(L, TOKEN_COLON);
             
         case ';':
             return token_new(L, TOKEN_SEMICOLON);
-
-        case '(':
-            return token_new(L, TOKEN_PAREN_LEFT);
-
-        case ')':
-            return token_new(L, TOKEN_PAREN_RIGHT);
             
         case '{':
             return token_new(L, TOKEN_LEFT_CURLY);
@@ -991,7 +1002,7 @@ struct token* consume_token(struct lexer* L)
             
             // Otherwise, emit a 〈delim〉 token with its value set to the current
             // input character. Remain in this state.
-            return token_delim(CHAR_COMMERCIAL_AT);
+            return token_new(L, TOKEN_DELIM);
             
             
         case '[':
@@ -1016,7 +1027,7 @@ struct token* consume_token(struct lexer* L)
                 return L->state(L);
             }
 
-            return token_delim(L->current);
+            return token_new(L, TOKEN_DELIM);
             
     }
     printf("Unexpected input at line %d:%d %c (0x%02X)\n", L->line, L->column, p(L->current), L->current);
