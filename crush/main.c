@@ -52,10 +52,6 @@ struct lexer {
 
     // The first character in the input stream that has not yet been consumed.
     unsigned next;
-
-    // The character that will end the current string.
-    unsigned ending;
-    
     unsigned line;
     unsigned column;
     bool integer;
@@ -875,12 +871,12 @@ struct token* consume_unicode_range(struct lexer* L){
 //
 // anything else:
 // Append the current input character to the 〈string〉’s value.
-struct token* consume_string_token(struct lexer* L, struct buffer* b)
+struct token* consume_string_token(struct lexer* L, struct buffer* b, unsigned ending)
 {
     lexer_consume(L);
     TRACE(L);
 
-    if (L->current == CHAR_EOF || L->current == L->ending) {
+    if (L->current == CHAR_EOF || L->current == ending) {
         return token_new(L, TOKEN_STRING, b);
     }
 
@@ -891,19 +887,19 @@ struct token* consume_string_token(struct lexer* L, struct buffer* b)
     if (L->current == CHAR_REVERSE_SOLIDUS){
         if (lexer_valid_escape(L)){
             buffer_push(b, lexer_consume_escape(L));
-            return consume_string_token(L, b);
+            return consume_string_token(L, b, ending);
         }
 
         if (L->next == CHAR_LINE_FEED){
             lexer_consume(L);
-            return consume_string_token(L, b);
+            return consume_string_token(L, b, ending);
         }
 
         return token_new(L, TOKEN_BAD_STRING, b);
     }
 
     buffer_push(b, L->current);
-    return consume_string_token(L, b);
+    return consume_string_token(L, b, ending);
 }
 
 struct token* consume_token(struct lexer* L, struct buffer* b)
@@ -922,9 +918,7 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
             return token_new(L, TOKEN_WHITESPACE, NULL);
             
         case CHAR_QUOTATION_MARK:
-            L->ending = CHAR_QUOTATION_MARK;
-
-            return consume_string_token(L, b);
+            return consume_string_token(L, b, CHAR_QUOTATION_MARK);
             
         case CHAR_NUMBER_SIGN:
             // If the next input character is a name character or the next two
@@ -950,9 +944,7 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
             return token_delim(L->current);
 
         case CHAR_APOSTROPHE:
-            // todo - pass ending
-            L->ending = CHAR_APOSTROPHE;
-            return consume_string_token(L, b);
+            return consume_string_token(L, b, CHAR_APOSTROPHE);
             break;
 
         case '(':
