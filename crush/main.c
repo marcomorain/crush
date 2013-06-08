@@ -389,15 +389,19 @@ static bool would_start_ident(unsigned first, unsigned second, unsigned third) {
     return false;
 }
 
-static bool lexer_next_three(struct lexer* L, unsigned one, unsigned two, unsigned three)
+static void lexer_next_three(struct lexer* L, unsigned r[3])
 {
-    unsigned a,b,c;
-    a = L->next;
-    b = fgetc(L->input);
-    c = fgetc(L->input);
-    ungetc(c, L->input);
-    ungetc(b, L->input);
-    return a == one && b == two && c == three;
+    r[0] = L->next;
+    r[1] = fgetc(L->input);
+    r[2] = fgetc(L->input);
+    ungetc(r[2], L->input);
+    ungetc(r[1], L->input);
+}
+
+static bool lexer_next_three_are(struct lexer* L, unsigned a, unsigned b, unsigned c) {
+    unsigned r[3];
+    lexer_next_three(L, r);
+    return a == r[0] && b == r[1] && c == r[2];
 }
 
 static bool lexer_would_start_ident(struct lexer* L) {
@@ -405,14 +409,9 @@ static bool lexer_would_start_ident(struct lexer* L) {
 }
 
 static bool lexer_next_would_start_ident(struct lexer* L) {
-    unsigned a,b,c;
-    a = L->next;
-    b = fgetc(L->input);
-    c = fgetc(L->input);
-    ungetc(c, L->input);
-    ungetc(b, L->input);
-    
-    return would_start_ident(a, b, c);
+    unsigned r[3];
+    lexer_next_three(L, r);
+    return would_start_ident(r[0], r[1], r[2]);
 }
 
 // 4.4.6. Check if three characters would start a number
@@ -999,7 +998,7 @@ struct token* consume_token(struct lexer* L)
             return token_new(L, TOKEN_SEMICOLON);
 
         case CHAR_LESS_THAN:
-            if (lexer_next_three(L, '!', CHAR_HYPHEN_MINUS, CHAR_HYPHEN_MINUS)){
+            if (lexer_next_three_are(L, '!', CHAR_HYPHEN_MINUS, CHAR_HYPHEN_MINUS)){
                 return token_new(L, TOKEN_CDO);
             }
             return token_new(L, TOKEN_DELIM);
