@@ -65,6 +65,7 @@ enum {
     CHAR_HYPHEN_MINUS    = 0x2D,
     CHAR_FULL_STOP       = 0x2E,
     CHAR_SOLIDUS         = 0x2F,
+    CHAR_LESS_THAN       = 0x3C,
     CHAR_GREATER_THAN    = 0x3E,
     CHAR_COMMERCIAL_AT   = 0x40,
     CHAR_LATIN_CAPITAL_E = 0x45,
@@ -386,6 +387,17 @@ static bool would_start_ident(unsigned first, unsigned second, unsigned third) {
     }
     
     return false;
+}
+
+static bool lexer_next_three(struct lexer* L, unsigned one, unsigned two, unsigned three)
+{
+    unsigned a,b,c;
+    a = L->next;
+    b = fgetc(L->input);
+    c = fgetc(L->input);
+    ungetc(c, L->input);
+    ungetc(b, L->input);
+    return a == one && b == two && c == three;
 }
 
 static bool lexer_would_start_ident(struct lexer* L) {
@@ -985,6 +997,12 @@ struct token* consume_token(struct lexer* L)
             
         case ';':
             return token_new(L, TOKEN_SEMICOLON);
+
+        case CHAR_LESS_THAN:
+            if (lexer_next_three(L, '!', CHAR_HYPHEN_MINUS, CHAR_HYPHEN_MINUS)){
+                return token_new(L, TOKEN_CDO);
+            }
+            return token_new(L, TOKEN_DELIM);
             
         case '{':
             return token_new(L, TOKEN_LEFT_CURLY);
