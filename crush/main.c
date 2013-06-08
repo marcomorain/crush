@@ -8,10 +8,41 @@
 
 // http://dev.w3.org/csswg/css-syntax/#tokenizing-and-parsing-css
 
+const static unsigned BUFFER_INIT_MAX = 32;
 
-struct lexer;
-typedef struct token*(*state)(struct lexer*);
-const static unsigned LEX_BUF_INIT_MAX = 32;
+struct buffer {
+    unsigned* data;
+    unsigned  capacity;
+    unsigned  size;
+    unsigned  initial[BUFFER_INIT_MAX];
+};
+
+struct buffer* buffer_init(struct buffer* b) {
+    // Premature optimization of course.
+    b->size     = 0;
+    b->data     = b->initial;
+    b->capacity = BUFFER_INIT_MAX;
+    return b;
+}
+
+void buffer_grow(struct buffer* b)
+{
+    unsigned* data = b->data;
+    b->data = malloc(2 * b->capacity * sizeof(unsigned));
+    memcpy(b->data, data, b->capacity * sizeof(unsigned));
+    b->capacity *= 2;
+    if (data != b->initial){
+        free(data);
+    }
+
+}
+struct buffer* buffer_push(struct buffer* b, unsigned c) {
+    if (b->size == b->capacity) {
+        buffer_grow(b);
+    }
+    b->data[b->size++] = c;
+    return b;
+}
 
 struct lexer {
     FILE* input;
@@ -25,18 +56,10 @@ struct lexer {
     // The character that will end the current string.
     unsigned ending;
     
-    state state;
     unsigned line;
     unsigned column;
     bool integer;
     bool id; // for hash
-    
-    struct {
-        unsigned* data;
-        unsigned  capacity;
-        unsigned  size;
-        unsigned  initial[LEX_BUF_INIT_MAX];
-    } buffer;
     
     struct {
         bool consumtion;
@@ -94,25 +117,6 @@ struct token {
 
 static double string_to_number(bool integer) {
     return 0;
-}
-
-void lexer_grow(struct lexer* L)
-{
-    unsigned* data = L->buffer.data;
-    L->buffer.data = malloc(2 * L->buffer.capacity * sizeof(unsigned));
-    memcpy(L->buffer.data, data, L->buffer.capacity * sizeof(unsigned));
-    L->buffer.capacity *= 2;
-    if (data != L->buffer.initial){
-        free(data);
-    }
-
-}
-
-void lexer_push(struct lexer* L, unsigned c) {
-    if (L->buffer.size == L->buffer.capacity) {
-        lexer_grow(L);
-    }
-    L->buffer.data[L->buffer.size++] = c;
 }
 
 /*
@@ -261,16 +265,30 @@ void* mallocf(size_t size){
     return result;
 }
 
-struct token* token_new(struct lexer* L, int type) {
+struct token* token_simple(int type) {
     struct token* t = calloc(1, sizeof(struct token));
     t->type        = type;
-    t->id          = L->id;
-    t->buffer_size = L->buffer.size;
-    t->buffer      = mallocf(L->buffer.size * sizeof(unsigned));
+    printf("> Simple token %s\n", token_name(t));
+    return t;
+}
 
-    memcpy(t->buffer, L->buffer.data, L->buffer.size * sizeof(unsigned));
-    L->buffer.size = 0;
-        
+struct token* token_delim(unsigned value) {
+    struct token* t = token_simple(TOKEN_DELIM);
+    t->value = value;
+    printf(" delim'%c'", t->value);
+    return t;
+}
+
+struct token* token_new(struct lexer* L, int type, const struct buffer* b) {
+    struct token* t = token_simple(type);
+    t->id          = L->id;
+
+    if (b) {
+        t->buffer_size = b->size;
+        t->buffer      = mallocf(b->size * sizeof(unsigned));
+        memcpy(t->buffer, b->data, b->size * sizeof(unsigned));
+    }
+
     printf("> Emited token %s ", token_name(t));
 
     if (t->buffer_size > 0) {
@@ -294,8 +312,7 @@ struct token* token_new(struct lexer* L, int type) {
             break;
 
         case TOKEN_DELIM:
-            t->value = L->current;
-            printf(" '%c'", t->value);
+            assert(0 && "use delim ctor");
             break;
 
         default:
@@ -307,7 +324,7 @@ struct token* token_new(struct lexer* L, int type) {
     return t;
 }
 
-struct token* consume_token(struct lexer* L);
+struct token* consume_token(struct lexer* L, struct buffer* b);
 
 void lexer_trace(struct lexer* L, const char* state) {
     if (L->logging.trace) {
@@ -481,173 +498,6 @@ static bool lexer_starts_with_number(struct lexer* L) {
     return starts_with_number(L->current, L->next, peek(L->input));
 }
 
-
-struct token* state_number_end(struct lexer* L)
-{
-    TRACE(L);
-    lexer_consume(L);
-    
-    switch (L->current){
-        case CHAR_PERCENT_SIGN:
-            return token_new(L, TOKEN_PERCENTAGE); // TODO: value <- number value
-            
-        case CHAR_HYPHEN_MINUS:
-            // If the input stream starts with an identifier, create a
-            // <dimension> with its representation set to the <number>’s
-            // representation, its value set to the <number>’s value, its type
-            // flag set to the 〈number〉’s type flag, and a unit initially set
-            // to the current input character. Switch to the dimension state.
-            if (lexer_would_start_ident(L)){
-                L->state = consume_token;
-                // todo  <- value
-                // todo  <- dimention
-                // todo: <- unit
-                return token_new(L, TOKEN_DIMENSION);
-            }
-            goto state_number_end_default;
-        
-        case CHAR_REVERSE_SOLIDUS:
-            // If the input stream starts with a valid escape, consume an escaped
-            // character. Create a <dimension> with its representation set to the
-            // <number>’s representation, its value set to the 〈number〉’s value,
-            // its type flag set to the 〈number〉’s type flag, and a unit initially
-            // set to the returned character. Switch to the dimension state.
-            if (lexer_valid_escape(L)){
-                return token_new(L, TOKEN_DIMENSION); // todo: < number value
-            } else
-                goto state_number_end_default;
-            
-        default:
-            // Otherwise, emit the 〈number〉. Switch to the data state. Reconsume
-            // the current input character.
-state_number_end_default:
-            lexer_recomsume(L);
-            L->state = consume_token;
-            return token_new(L, TOKEN_NUMBER); // todo value <- number
-
-    }
-    
-}
-
-/*
- 4.3.9. Number-rest state 
-
-
- 
- U+0045 LATIN CAPITAL LETTER E (E)
- U+0065 LATIN SMALL LETTER E (e)
- If the next input character is a digit, or the next 2 input characters are U+002B
- PLUS SIGN (+) or U+002D HYPHEN-MINUS (-) followed by a digit, consume them.
- Append U+0065 LATIN SMALL LETTER E (e) and the consumed characters to the
- <number>’s representation. Switch to the sci-notation state.
- Otherwise, switch to the number-end state. Reconsume the current input character.
-*/
-struct token* state_number_rest(struct lexer* L) {
-    TRACE(L);
-    lexer_consume(L);
-    
-    switch (L->current) {
-        case CHAR_FULL_STOP:
-        {
-            //  U+002E FULL STOP (.)
-            // If the <number’s type flag is currently "integer" and the next
-            // input character is a digit, consume it. Append U+002E FULL STOP (.)
-            // followed by the digit to the <number>’s representation. Set the
-            // <number>’s type flag to "number". Remain in this state.
-            if (L->integer && isdigit(L->next)) {
-                lexer_push(L, L->current);
-                lexer_consume(L);
-                lexer_push(L, L->current);
-                L->integer = false;
-                return L->state(L);
-            }
-            // Otherwise, set the <number>’s value to the number produced by
-            // interpreting the <number>’s representation as a base-10 number and
-            // emit it. Switch to the data state. Reconsume the current input
-            // character.
-            puts("emit a number!");
-            L->state = consume_token;
-            lexer_recomsume(L);
-            return token_new(L, TOKEN_NUMBER); // TODO: a value
-        }
-            
-        case CHAR_LATIN_CAPITAL_E:
-        case CHAR_LATIN_SMALL_E:
-            // If the next input character is a digit, or the next 2 input
-            // characters are U+002B PLUS SIGN (+) or U+002D HYPHEN-MINUS (-)
-            // followed by a digit, consume them. Append U+0065 LATIN SMALL
-            // LETTER E (e) and the consumed characters to the 〈number〉’s
-            // representation. Switch to the sci-notation state.
-            if (false){
-                // TODO
-                
-            }
-            // Otherwise, switch to the number-end state. Reconsume the current
-            // input character.
-            L->state = state_number_end;
-            lexer_recomsume(L);
-            return L->state(L);
-            
-        default:
-            if (isdigit(L->current)) {
-                // digit:
-                // Append the current input character to the <number>’s representation. Remain in
-                // this state.
-                lexer_push(L, L->current);
-                return L->state(L);
-            } else {
-                // Set the <number>’s value to the number produced by
-                // interpreting the <number>’s representation as a base-10
-                // number. Switch to the number-end state. Reconsume the current
-                // input character.
-                // TODO: parse number as base 10.
-                lexer_recomsume(L);
-                L->state = state_number_end;
-                return L->state(L);
-            }
-    }
-    
-    assert(0 && "end of number state");
-    return NULL;
-}
-
-struct token* state_number(struct lexer* L)
-{
-    TRACE(L);
-    lexer_consume(L);
-    L->integer = true;
-    
-    switch(L->current){
-        case CHAR_PLUS_SIGN:
-        case CHAR_HYPHEN_MINUS:
-            lexer_push(L, L->current);
-            if (L->next == CHAR_FULL_STOP) {
-                L->integer = false;
-                lexer_consume(L);
-                lexer_push(L, L->current);
-            }
-            lexer_consume(L);
-            goto number;
-            
-        case CHAR_FULL_STOP:
-            L->integer = false;
-            lexer_push(L, L->current);
-            lexer_consume(L);
-            goto number;
-            
-        default:
-            // Reaching this state indicates an error either
-            // in the spec or the implementation.
-            assert(isdigit(L->current));
-number:
-            lexer_push(L, L->current);
-            L->state = state_number_rest;
-            return L->state(L);
-    }
-    
-}
-
-
 unsigned char hex_to_byte(unsigned hex_char){
     hex_char = toupper(hex_char);
     return hex_char > '9' ? hex_char - 'A' + 10 : hex_char - '0';
@@ -676,12 +526,12 @@ unsigned char hex_to_byte(unsigned hex_char){
 unsigned lexer_consume_escape(struct lexer* L) {
     assert(L->current == CHAR_REVERSE_SOLIDUS);
     lexer_consume(L);
-    
+
     // not hex
     if (!ishexnumber(L->current)) {
         return L->current;
     }
-    
+
     // is hex
     unsigned result = hex_to_byte(L->current);
     for (int i=0; i<5; i++){
@@ -694,13 +544,13 @@ unsigned lexer_consume_escape(struct lexer* L) {
     return result;
 }
 
-struct token* state_ident(struct lexer* L) {
+struct token* state_ident(struct lexer* L, struct buffer* b) {
     TRACE(L);
     lexer_consume(L);
 
-    if (char_name(L->current)){
-        lexer_push(L, L->current);
-        return L->state(L);
+    if (char_name(L->current)) {
+        buffer_push(b, L->current);
+        return state_ident(L, b);
     }
 
     if (L->current == CHAR_REVERSE_SOLIDUS) {
@@ -709,36 +559,29 @@ struct token* state_ident(struct lexer* L) {
         // Append the returned character to the <input>’s value.
         // Remain in this state.
         if (lexer_valid_escape(L)) {
-            lexer_push(L, lexer_consume_escape(L));
-            return L->state(L);
+            buffer_push(b, lexer_consume_escape(L));
+            return state_ident(L, b);
         }
-        
+
         // Otherwise, emit the <ident>. Switch to the data state. Reconsume the
         // current input character.
         lexer_recomsume(L);
-        L->state = consume_token;
-        return token_new(L, TOKEN_IDENT); // TODO: value <= here
+        return token_new(L, TOKEN_IDENT, b);
     }
 
-    /*
-     U+0028 LEFT PARENTHESIS (()
-     If the <ident>’s value is an ASCII case-insensitive match for "url", switch to the url state.
-     Otherwise, emit a <function> token with its value set to the <ident>’s value. Switch to the data state.
-     */
-
+    // U+0028 LEFT PARENTHESIS (()
+    // If the <ident>’s value is an ASCII case-insensitive match for "url", switch to the url state.
+    // Otherwise, emit a <function> token with its value set to the <ident>’s value. Switch to the data state.
     if (L->current == '(') {
         // TODO: check for URL.
-        L->state = consume_token;
-        token_new(L, TOKEN_FUNCTION); // TODO: value <- ident
+        token_new(L, TOKEN_FUNCTION, b); // TODO: value <- ident
     }
 
     // anything else
     // Emit the <ident>. Switch to the data state. Reconsume the current input character.
-    L->state = consume_token;
     lexer_recomsume(L);
-    return token_new(L, TOKEN_IDENT); // TODO:
+    return token_new(L, TOKEN_IDENT, b);
 }
-
 
 
 // 4.3.11. Consume a name
@@ -762,19 +605,182 @@ struct token* state_ident(struct lexer* L) {
 //   Consume an escaped character. Append the returned character to result.
 // anything else:
 //   Return result.
-void consume_name(struct lexer* L) {
+void consume_name(struct lexer* L, struct buffer* b) {
     TRACE(L);
     for (;;) {
         lexer_consume(L);
         if (char_name(L->current)) {
-            lexer_push(L, L->current);
+            buffer_push(b, L->current);
         } else if (lexer_valid_escape(L)) {
-            lexer_push(L, lexer_consume_escape(L));
+            buffer_push(b, lexer_consume_escape(L));
         } else {
             return;
         }
     }
 }
+
+struct token* state_number_end(struct lexer* L, struct buffer* b)
+{
+    TRACE(L);
+    lexer_consume(L);
+    
+    switch (L->current){
+        case CHAR_PERCENT_SIGN:
+            return token_new(L, TOKEN_PERCENTAGE, b);
+            
+        case CHAR_HYPHEN_MINUS:
+            // If the input stream starts with an identifier, create a
+            // <dimension> with its representation set to the <number>’s
+            // representation, its value set to the <number>’s value, its type
+            // flag set to the 〈number〉’s type flag, and a unit initially set
+            // to the current input character. Switch to the dimension state.
+            if (lexer_would_start_ident(L)){
+                // todo  <- value
+                // todo  <- dimention
+                // todo: <- unit
+
+                struct buffer dimension;
+                consume_name(L, buffer_init(&dimension));
+                // todo: dimension
+                return token_new(L, TOKEN_DIMENSION, b);
+            }
+            goto state_number_end_default;
+        
+        case CHAR_REVERSE_SOLIDUS:
+            // If the input stream starts with a valid escape, consume an escaped
+            // character. Create a <dimension> with its representation set to the
+            // <number>’s representation, its value set to the 〈number〉’s value,
+            // its type flag set to the 〈number〉’s type flag, and a unit initially
+            // set to the returned character. Switch to the dimension state.
+            if (lexer_valid_escape(L)){
+                // todo: dimenion
+                // check buffer here
+                return token_new(L, TOKEN_DIMENSION, b); // todo: < number value
+            } else
+                goto state_number_end_default;
+            
+        default:
+            // Otherwise, emit the 〈number〉. Switch to the data state. Reconsume
+            // the current input character.
+state_number_end_default:
+            lexer_recomsume(L);
+            return token_new(L, TOKEN_NUMBER, b);
+
+    }
+    
+}
+
+
+// 4.3.9. Number-rest state
+//
+// U+0045 LATIN CAPITAL LETTER E (E)
+// U+0065 LATIN SMALL LETTER E (e)
+// If the next input character is a digit, or the next 2 input characters are U+002B
+// PLUS SIGN (+) or U+002D HYPHEN-MINUS (-) followed by a digit, consume them.
+// Append U+0065 LATIN SMALL LETTER E (e) and the consumed characters to the
+// <number>’s representation. Switch to the sci-notation state.
+// Otherwise, switch to the number-end state. Reconsume the current input character.
+struct token* state_number_rest(struct lexer* L, struct buffer* b) {
+    TRACE(L);
+    lexer_consume(L);
+    
+    switch (L->current) {
+        case CHAR_FULL_STOP:
+        {
+            //  U+002E FULL STOP (.)
+            // If the <number’s type flag is currently "integer" and the next
+            // input character is a digit, consume it. Append U+002E FULL STOP (.)
+            // followed by the digit to the <number>’s representation. Set the
+            // <number>’s type flag to "number". Remain in this state.
+            if (L->integer && isdigit(L->next)) {
+                buffer_push(b, L->current);
+                lexer_consume(L);
+                buffer_push(b, L->current);
+                L->integer = false;
+                return state_number_rest(L, b);
+            }
+            // Otherwise, set the <number>’s value to the number produced by
+            // interpreting the <number>’s representation as a base-10 number and
+            // emit it. Switch to the data state. Reconsume the current input
+            // character.
+            puts("emit a number!");
+            lexer_recomsume(L);
+            return token_new(L, TOKEN_NUMBER, b);
+        }
+            
+        case CHAR_LATIN_CAPITAL_E:
+        case CHAR_LATIN_SMALL_E:
+            // If the next input character is a digit, or the next 2 input
+            // characters are U+002B PLUS SIGN (+) or U+002D HYPHEN-MINUS (-)
+            // followed by a digit, consume them. Append U+0065 LATIN SMALL
+            // LETTER E (e) and the consumed characters to the 〈number〉’s
+            // representation. Switch to the sci-notation state.
+            if (false){
+                // TODO
+                
+            }
+            // Otherwise, switch to the number-end state. Reconsume the current
+            // input character.
+            lexer_recomsume(L);
+            return state_number_end(L, b);
+            
+        default:
+            if (isdigit(L->current)) {
+                // digit:
+                // Append the current input character to the <number>’s representation. Remain in
+                // this state.
+                buffer_push(b, L->current);
+                return state_number_rest(L, b);
+            } else {
+                // Set the <number>’s value to the number produced by
+                // interpreting the <number>’s representation as a base-10
+                // number. Switch to the number-end state. Reconsume the current
+                // input character.
+                // TODO: parse number as base 10.
+                lexer_recomsume(L);
+                return state_number_end(L, b);
+            }
+    }
+    
+    assert(0 && "end of number state");
+    return NULL;
+}
+
+struct token* state_number(struct lexer* L, struct buffer* b)
+{
+    TRACE(L);
+    lexer_consume(L);
+    L->integer = true;
+    
+    switch(L->current){
+        case CHAR_PLUS_SIGN:
+        case CHAR_HYPHEN_MINUS:
+            buffer_push(b, L->current);
+            if (L->next == CHAR_FULL_STOP) {
+                L->integer = false;
+                lexer_consume(L);
+                buffer_push(b, L->current);
+            }
+            lexer_consume(L);
+            goto number;
+            
+        case CHAR_FULL_STOP:
+            L->integer = false;
+            buffer_push(b, L->current);
+            lexer_consume(L);
+            goto number;
+            
+        default:
+            // Reaching this state indicates an error either
+            // in the spec or the implementation.
+            assert(isdigit(L->current));
+number:
+            buffer_push(b, L->current);
+            return state_number_rest(L, b);
+    }
+    
+}
+
 
 // 4.3.6. At-keyword state
 //
@@ -783,7 +789,7 @@ void consume_name(struct lexer* L) {
 //
 // Consume the next input character.
 //
-struct token* state_at_keyword(struct lexer* L)
+struct token* state_at_keyword(struct lexer* L, struct buffer* b)
 {
     TRACE(L);
     lexer_consume(L);
@@ -792,9 +798,8 @@ struct token* state_at_keyword(struct lexer* L)
     // Append the current input character to the 〈at-keyword〉’s value. Remain
     // in this state.
     if (char_name(L->current)){
-        lexer_push(L, L->current);
-        // todo: don't recurse
-        return L->state(L);
+        buffer_push(b, L->current);
+        return state_at_keyword(L, b);
     }
 
     // U+005C REVERSE SOLIDUS (\):
@@ -803,14 +808,13 @@ struct token* state_at_keyword(struct lexer* L)
         // character Append the returned character to the 〈at-keyword〉’s value.
         // Remain in this state.
         if (lexer_valid_escape(L)) {
-            lexer_push(L, lexer_consume_escape(L));
-            return L->state(L);
+            buffer_push(b, lexer_consume_escape(L));
+            return state_at_keyword(L, b);
         }
         // Otherwise, emit the 〈at-keyword〉. Switch to the data state. Reconsume
         // the current input character.
-        L->state = consume_token;
         lexer_recomsume(L);
-        return token_new(L, TOKEN_AT_KEYWORD); // todo: value
+        return token_new(L, TOKEN_AT_KEYWORD, b);
         
     }
     
@@ -820,14 +824,13 @@ struct token* state_at_keyword(struct lexer* L)
     // If this state emits an 〈at-keyword〉 whose value is the empty string, it's
     // a spec or implementation error. The data validation performed in the data
     // state should have guaranteed a non-empty value.
-    L->state = consume_token;
     lexer_recomsume(L);
-    return token_new(L, TOKEN_AT_KEYWORD);
+    return token_new(L, TOKEN_AT_KEYWORD, b);
 }
 
 struct token* consume_unicode_range(struct lexer* L){
     assert(0 && "not implemented");
-    return token_new(L, TOKEN_UNICODE_RANGE);
+    return token_new(L, TOKEN_UNICODE_RANGE, 0);
 }
 
 
@@ -857,48 +860,43 @@ struct token* consume_unicode_range(struct lexer* L){
 //
 // anything else:
 // Append the current input character to the 〈string〉’s value.
-struct token* consume_string_token(struct lexer* L)
+struct token* consume_string_token(struct lexer* L, struct buffer* b)
 {
     lexer_consume(L);
     TRACE(L);
 
     if (L->current == CHAR_EOF || L->current == L->ending) {
-        L->state = consume_token;
-        return token_new(L, TOKEN_STRING);
+        return token_new(L, TOKEN_STRING, b);
     }
 
     if (L->current == CHAR_LINE_FEED) {
-        L->state = consume_token;
-        return token_new(L, TOKEN_BAD_STRING);
+        return token_new(L, TOKEN_BAD_STRING, b);
     }
 
     if (L->current == CHAR_REVERSE_SOLIDUS){
         if (lexer_valid_escape(L)){
-            lexer_push(L, lexer_consume_escape(L));
-            return L->state(L);
+            buffer_push(b, lexer_consume_escape(L));
+            return consume_string_token(L, b);
         }
 
         if (L->next == CHAR_LINE_FEED){
             lexer_consume(L);
-            return L->state(L);
+            return consume_string_token(L, b);
         }
 
-        L->state = consume_token;
-        return token_new(L, TOKEN_BAD_STRING);
+        return token_new(L, TOKEN_BAD_STRING, b);
     }
 
-    lexer_push(L, L->current);
-    return L->state(L);
+    buffer_push(b, L->current);
+    return consume_string_token(L, b);
 }
 
-struct token* consume_token(struct lexer* L)
+struct token* consume_token(struct lexer* L, struct buffer* b)
 {
     TRACE(L);
     lexer_consume(L);
 
-
-    switch(L->current)
-    {
+    switch(L->current) {
         // A newline, U+0009 CHARACTER TABULATION, or U+0020 SPACE.
         case CHAR_LINE_FEED:
         case '\t':
@@ -906,12 +904,12 @@ struct token* consume_token(struct lexer* L)
             while(whitespace(L->next)){
                 lexer_consume(L);
             }
-            return token_new(L, TOKEN_WHITESPACE);
+            return token_new(L, TOKEN_WHITESPACE, NULL);
             
         case CHAR_QUOTATION_MARK:
             L->ending = CHAR_QUOTATION_MARK;
-            L->state = consume_string_token;
-            return L->state(L);
+
+            return consume_string_token(L, b);
             
         case CHAR_NUMBER_SIGN:
             // If the next input character is a name character or the next two
@@ -922,81 +920,78 @@ struct token* consume_token(struct lexer* L)
             // input character. Remain in this state.
             if (char_name(L->next) || valid_escape(L->next, peek(L->input))) {
                 L->id = lexer_next_would_start_ident(L);
-                consume_name(L);
-                return token_new(L, TOKEN_HASH);
+                struct buffer buffer;
+                consume_name(L, buffer_init(&buffer));
+                return token_new(L, TOKEN_HASH, &buffer);
             }
             
-            return token_new(L, TOKEN_DELIM);
+            return token_delim(L->current);
             
         case '$':
             if (L->next == '=') {
                 lexer_consume(L);
-                return token_new(L, TOKEN_SUFFIX_MATCH);
+                return token_simple(TOKEN_SUFFIX_MATCH);
             }
-            return token_new(L, TOKEN_DELIM);
+            return token_delim(L->current);
 
         case CHAR_APOSTROPHE:
+            // todo - pass ending
             L->ending = CHAR_APOSTROPHE;
-            L->state = consume_string_token;
-            return L->state(L);
+            return consume_string_token(L, b);
             break;
 
         case '(':
-            return token_new(L, TOKEN_PAREN_LEFT);
+            return token_simple(TOKEN_PAREN_LEFT);
 
         case ')':
-            return token_new(L, TOKEN_PAREN_RIGHT);
+            return token_simple(TOKEN_PAREN_RIGHT);
 
         case CHAR_ASTERISK:
             if (L->next == '=') {
                 lexer_consume(L);
-                return token_new(L, TOKEN_SUBSTRING_MATCH);
+                return token_simple(TOKEN_SUBSTRING_MATCH);
             }
-            return token_new(L, TOKEN_DELIM);
+            return token_delim(L->current);
 
         case '+':
             if (lexer_starts_with_number(L)){
                 lexer_recomsume(L);
-                L->state = state_number;
-                return L->state(L);
+                return state_number(L, b);
             }
-            return token_new(L, TOKEN_DELIM);
+            return token_delim(L->current);
 
         case ',':
-            return token_new(L, TOKEN_COMMA);
+            return token_simple(TOKEN_COMMA);
 
         case CHAR_HYPHEN_MINUS:
             if (lexer_starts_with_number(L)){
                 lexer_recomsume(L);
-                L->state = state_number;
-                return L->state(L);
+                return state_number(L, b);
             }
 
             if (lexer_would_start_ident(L)){
                 lexer_recomsume(L);
-                L->state = state_ident;
-                return L->state(L);
+                return state_ident(L, b);
             }
 
             if (L->next == CHAR_HYPHEN_MINUS && peek(L->input) == CHAR_GREATER_THAN) {
                 lexer_consume(L);
                 lexer_consume(L);
-                return token_new(L, TOKEN_CDC);
+                return token_simple(TOKEN_CDC);
             }
 
-            return token_new(L, TOKEN_DELIM);
+            return token_delim(L->current);
 
         case CHAR_FULL_STOP:
             // If the input stream starts with a number, reconsume the current
             // input character and switch to the number state.
             if (lexer_starts_with_number(L)) {
                 lexer_recomsume(L);
-                L->state = state_number;
-                return L->state(L);
+                return state_number(L, b);
             }
             // Otherwise, emit a <delim> token with its value set to the current
             // input character. Remain in this state.
-            return token_new(L, TOKEN_DELIM);
+            return token_delim(L->current);
 
         case CHAR_SOLIDUS:
             if (L->next == CHAR_ASTERISK) {
@@ -1015,71 +1010,70 @@ struct token* consume_token(struct lexer* L)
                 }
                 printf("\n");
                 // go again.
-                return L->state(L);
+                return consume_token(L, b);
             }
-            return token_new(L, TOKEN_DELIM);
+            return token_delim(L->current);
 
         case ':':
-            return token_new(L, TOKEN_COLON);
+            return token_simple(TOKEN_COLON);
             
         case ';':
-            return token_new(L, TOKEN_SEMICOLON);
+            return token_simple(TOKEN_SEMICOLON);
 
         case CHAR_LESS_THAN:
             if (lexer_next_three_are(L, '!', CHAR_HYPHEN_MINUS, CHAR_HYPHEN_MINUS)){
-                return token_new(L, TOKEN_CDO);
+                return token_simple(TOKEN_CDO);
             }
-            return token_new(L, TOKEN_DELIM);
+            return token_delim(L->current);
             
         case '{':
-            return token_new(L, TOKEN_LEFT_CURLY);
+            return token_simple(TOKEN_LEFT_CURLY);
             
         case '}':
-            return token_new(L, TOKEN_RIGHT_CURLY);
+            return token_simple(TOKEN_RIGHT_CURLY);
             
         case CHAR_COMMERCIAL_AT:
             // If the next 3 input characters would start an identifier, switch
             // to the at-keyword state.
             if (lexer_next_would_start_ident(L)){
-                L->state = state_at_keyword;
-                return L->state(L);
+                return state_at_keyword(L, b);
             }
             
             // Otherwise, emit a 〈delim〉 token with its value set to the current
             // input character. Remain in this state.
-            return token_new(L, TOKEN_DELIM);
+            return token_delim(L->current);
             
             
         case '[':
-            return token_new(L, TOKEN_LEFT_SQUARE);
+            return token_simple(TOKEN_LEFT_SQUARE);
             
         case ']':
-            return token_new(L, TOKEN_RIGHT_SQUARE);
+            return token_simple(TOKEN_RIGHT_SQUARE);
 
         case CHAR_CIRCUMFLEX_ACCENT:
             if (L->next == '='){
                 lexer_consume(L);
-                return token_new(L, TOKEN_PREFIX_MATCH);
+                return token_simple(TOKEN_PREFIX_MATCH);
             }
-            return token_new(L, TOKEN_DELIM);
+             return token_delim(L->current);
 
         case CHAR_VERTICAL_LINE:
             if (L->next == '=') {
                 lexer_consume(L);
-                return token_new(L, TOKEN_DASH_MATCH);
+                return token_simple(TOKEN_DASH_MATCH);
             }
             if (L->next == CHAR_VERTICAL_LINE) {
                 lexer_consume(L);
-                return token_new(L, TOKEN_COLUMN);
+                return token_simple(TOKEN_COLUMN);
             }
-            return token_new(L, TOKEN_DELIM);
+            return token_simple(TOKEN_DELIM);
 
         case CHAR_TILDE:
             if (L->next == '=') {
                 lexer_consume(L);
-                return token_new(L, TOKEN_INCLUDE_MATCH);
+                return token_simple(TOKEN_INCLUDE_MATCH);
             }
-            return token_new(L, TOKEN_DELIM);
+            return token_simple(TOKEN_DELIM);
 
         case CHAR_LATIN_CAPITAL_E:
         case CHAR_LATIN_SMALL_E:
@@ -1088,36 +1082,32 @@ struct token* consume_token(struct lexer* L)
                 if(ishexnumber(second) || second == CHAR_QUESTION_MARK){
                     // consume the CHAR_PLUS_SIGN
                     lexer_consume(L);
-                    L->state = consume_unicode_range;
-                    return L->state(L);
+                    return consume_unicode_range(L);
                 }
             }
             lexer_recomsume(L);
-            L->state = state_ident;
-            return L->state(L);
+            return state_ident(L, b);
 
 
         case CHAR_EOF:
-            return token_new(L, TOKEN_NONE);
+            return token_simple(TOKEN_NONE);
 
         default:
             if (char_name_start(L->current)) {
                 lexer_recomsume(L);
-                L->state = state_ident;
-                return L->state(L);
+                return state_ident(L, b);
             }
             
             if (isdigit(L->current)){
                 lexer_recomsume(L);
-                L->state = state_number;
-                return L->state(L);
+                return state_number(L, b);
             }
 
-            return token_new(L, TOKEN_DELIM);
+            return token_simple(TOKEN_DELIM);
             
     }
     printf("Unexpected input at line %d:%d %c (0x%02X)\n", L->line, L->column, p(L->current), L->current);
-    return token_new(L, TOKEN_NONE);
+    return token_simple(TOKEN_NONE);
 }
 
 void lexer_init(struct lexer* L, FILE* input)
@@ -1125,17 +1115,13 @@ void lexer_init(struct lexer* L, FILE* input)
     memset(L, 0, sizeof(struct lexer));
     L->input   = input;
     L->next    = fgetc(input);
-    L->state   = consume_token;
     L->line    = 1;
-    
-    // Premature optimization of course.
-    L->buffer.data     = L->buffer.initial;
-    L->buffer.capacity = LEX_BUF_INIT_MAX;
 }
 
 struct token* lexer_next(struct lexer* L)
 {
-    return  L->state(L);
+    struct buffer buffer;
+    return consume_token(L, buffer_init(&buffer));
 }
 
 int main(int argc, const char * argv[])
