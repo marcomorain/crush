@@ -29,6 +29,7 @@ struct lexer {
     unsigned line;
     unsigned column;
     bool integer;
+    bool id; // for hash
     
     struct {
         unsigned* data;
@@ -75,16 +76,19 @@ enum {
 
 struct token {
     int       type;
+    bool      id;
     unsigned  value;
+
     unsigned* buffer;
+    size_t    buffer_size;
 };
 
 
 void lexer_grow(struct lexer* L)
 {
     unsigned* data = L->buffer.data;
-    L->buffer.data = malloc(2 * L->buffer.capacity);
-    memcpy(L->buffer.data, data, L->buffer.capacity);
+    L->buffer.data = malloc(2 * L->buffer.capacity * sizeof(unsigned));
+    memcpy(L->buffer.data, data, L->buffer.capacity * sizeof(unsigned));
     L->buffer.capacity *= 2;
     if (data != L->buffer.initial){
         free(data);
@@ -236,21 +240,39 @@ const char* token_name(struct token* t){
     return "";
 }
 
+void* mallocf(size_t size){
+    void* result = malloc(size);
+    if (!result) {
+        fprintf(stderr, "Error allocating memory");
+        exit(EXIT_FAILURE);
+    }
+    return result;
+}
+
 struct token* token_new(struct lexer* L, int type) {
     struct token* t = calloc(1, sizeof(struct token));
-    t->type   = type;
-    
+    t->type        = type;
+    t->id          = L->id;
+    t->buffer_size = L->buffer.size;
+    t->buffer      = mallocf(L->buffer.size * sizeof(unsigned));
+
+    memcpy(t->buffer, L->buffer.data, L->buffer.size * sizeof(unsigned));
+    L->buffer.size = 0;
+        
     printf("> Emited token %s ", token_name(t));
-    
-    if (L->buffer.size > 0) {
+
+    if (t->buffer_size > 0) {
         printf("value: \"");
-        for (int i = 0;i< L->buffer.size; i++){
-            printf("%c", p(L->buffer.data[i]));
+        for (int i = 0;i< t->buffer_size; i++){
+            printf("%c", p(t->buffer[i]));
         }
         printf("\"");
-        L->buffer.size = 0;
+    }
+    if (type == TOKEN_HASH){
+        printf(" (%s)", (t->id ? "id" :  "unrestricted"));
     }
     printf("\n");
+
     return t;
 }
 
@@ -526,6 +548,7 @@ struct token* state_number_rest(struct lexer* L) {
             // representation. Switch to the sci-notation state.
             if (false){
                 // TODO
+                
             }
             // Otherwise, switch to the number-end state. Reconsume the current
             // input character.
@@ -535,7 +558,7 @@ struct token* state_number_rest(struct lexer* L) {
             
         default:
             if (isdigit(L->current)) {
-                // digit
+                // digit:
                 // Append the current input character to the <number>’s representation. Remain in
                 // this state.
                 lexer_push(L, L->current);
@@ -721,46 +744,38 @@ struct token* state_ident(struct lexer* L) {
 
 
 
-
-// 4.3.4. Hash state
-// Consume the next input character.
+// 4.3.11. Consume a name
+//
+// This section describes how to consume a name from a stream of characters.
+// It returns a string containing the largest name that can be formed from
+// adjacent characters in the stream, starting from the first.
+//
+// This algorithm does not do the verification of the first few characters that
+// are necessary to ensure the returned characters would constitute an 〈ident〉.
+// If that is the intended use, ensure that the stream starts with an identifier
+// before calling this algorithm.
+//
+// Let result initially be an empty string.
+//
+// Repeatedly consume the next input character from the stream:
 //
 // name character:
-// Append the current input character to the 〈hash〉’s value. Remain in this state.
-//
-// U+005C REVERSE SOLIDUS (\)
-// If the input stream starts with a valid escape, consume an escaped character
-// and append the returned character to the 〈hash〉’s value. Remain in this state.
-//
-// Otherwise, this is a parse error. Emit the 〈hash〉. Switch to the data state.
-// Reconsume the current input character.
-//
+//   Append the character to result.
+// the stream starts with a valid escape:
+//   Consume an escaped character. Append the returned character to result.
 // anything else:
-// Emit the <hash>. Switch to the data state. Reconsume the current input character.
-//
-// If this state emits a 〈hash〉 whose value is the empty string, it's a spec or
-// implementation error. The data validation performed in the data state should
-// have guaranteed a non-empty value.
-
-struct token* state_hash(struct lexer* L){
+//   Return result.
+void consume_name(struct lexer* L) {
     TRACE(L);
-    lexer_consume(L);
-    switch(L->current) {
-        case CHAR_REVERSE_SOLIDUS:
-            if (lexer_valid_escape(L)){
-                lexer_push(L, lexer_consume_escape(L));
-                return L->state(L);
-            }
-            
-            fprintf(stderr, "Parse error line %d:%d", L->line, L->column);
-            L->state = consume_token;
-            lexer_recomsume(L);
-            return token_new(L, TOKEN_HASH); // todo: value
-            
-        default:
-            L->state = consume_token;
-            lexer_recomsume(L);
-            return token_new(L, TOKEN_HASH); // todo: value
+    for (;;) {
+        lexer_consume(L);
+        if (char_name(L->current)) {
+            lexer_push(L, L->current);
+        } else if (lexer_valid_escape(L)) {
+            lexer_push(L, lexer_consume_escape(L));
+        } else {
+            return;
+        }
     }
 }
 
@@ -903,10 +918,10 @@ struct token* consume_token(struct lexer* L)
             // flag to "id". Switch to the hash state.
             // Otherwise, emit a 〈delim〉 token with its value set to the current
             // input character. Remain in this state.
-            if (char_name(L->next)) {
-                // TODO: there are three more cases here.
-                L->state = state_hash;
-                return token_new(L, TOKEN_HASH); // todo: type id
+            if (char_name(L->next) || valid_escape(L->next, peek(L->input))) {
+                L->id = lexer_next_would_start_ident(L);
+                consume_name(L);
+                return token_new(L, TOKEN_HASH);
             }
             
             return token_delim(L->current);
