@@ -52,29 +52,32 @@ char p(char c){
 
 
 enum {
-    CHAR_NULL            = 0,
-    CHAR_LINE_FEED       = 0xA,
-    CHAR_FORM_FEED       = 0xC,
-    CHAR_CARRIAGE_RETURN = 0xD,
-    CHAR_QUOTATION_MARK  = 0x22,
-    CHAR_NUMBER_SIGN     = 0x23,
-    CHAR_PERCENT_SIGN    = 0x25,
-    CHAR_APOSTROPHE      = 0x27,
-    CHAR_ASTERISK        = 0x2A,
-    CHAR_PLUS_SIGN       = 0x2B,
-    CHAR_HYPHEN_MINUS    = 0x2D,
-    CHAR_FULL_STOP       = 0x2E,
-    CHAR_SOLIDUS         = 0x2F,
-    CHAR_LESS_THAN       = 0x3C,
-    CHAR_GREATER_THAN    = 0x3E,
-    CHAR_COMMERCIAL_AT   = 0x40,
-    CHAR_LATIN_CAPITAL_E = 0x45,
-    CHAR_REVERSE_SOLIDUS = 0x5C,
-    CHAR_LOW_LINE        = 0x5F,
-    CHAR_LATIN_SMALL_E   = 0x65,
-    CHAR_CONTROL         = 0x80,
-    CHAR_REPLACEMENT     = 0xFFFD,
-    CHAR_EOF             = EOF,
+    CHAR_NULL              = 0,
+    CHAR_LINE_FEED         = 0xA,
+    CHAR_FORM_FEED         = 0xC,
+    CHAR_CARRIAGE_RETURN   = 0xD,
+    CHAR_QUOTATION_MARK    = 0x22,
+    CHAR_NUMBER_SIGN       = 0x23,
+    CHAR_PERCENT_SIGN      = 0x25,
+    CHAR_APOSTROPHE        = 0x27,
+    CHAR_ASTERISK          = 0x2A,
+    CHAR_PLUS_SIGN         = 0x2B,
+    CHAR_HYPHEN_MINUS      = 0x2D,
+    CHAR_FULL_STOP         = 0x2E,
+    CHAR_CIRCUMFLEX_ACCENT = 0x5E,
+    CHAR_SOLIDUS           = 0x2F,
+    CHAR_LESS_THAN         = 0x3C,
+    CHAR_GREATER_THAN      = 0x3E,
+    CHAR_COMMERCIAL_AT     = 0x40,
+    CHAR_LATIN_CAPITAL_E   = 0x45,
+    CHAR_REVERSE_SOLIDUS   = 0x5C,
+    CHAR_LOW_LINE          = 0x5F,
+    CHAR_LATIN_SMALL_E     = 0x65,
+    CHAR_VERTICAL_LINE     = 0x7C,
+    CHAR_TILDE             = 0x7E,
+    CHAR_CONTROL           = 0x80,
+    CHAR_REPLACEMENT       = 0xFFFD,
+    CHAR_EOF               = EOF,
 };
 
 struct token {
@@ -1027,6 +1030,31 @@ struct token* consume_token(struct lexer* L)
             
         case ']':
             return token_new(L, TOKEN_RIGHT_SQUARE);
+
+        case CHAR_CIRCUMFLEX_ACCENT:
+            if (L->next == '='){
+                lexer_consume(L);
+                return token_new(L, TOKEN_PREFIX_MATCH);
+            }
+            return token_new(L, TOKEN_DELIM);
+
+        case CHAR_VERTICAL_LINE:
+            if (L->next == '=') {
+                lexer_consume(L);
+                return token_new(L, TOKEN_DASH_MATCH);
+            }
+            if (L->next == CHAR_VERTICAL_LINE) {
+                lexer_consume(L);
+                return token_new(L, TOKEN_COLUMN);
+            }
+            return token_new(L, TOKEN_DELIM);
+
+        case CHAR_TILDE:
+            if (L->next == '=') {
+                lexer_consume(L);
+                return token_new(L, TOKEN_INCLUDE_MATCH);
+            }
+            return token_new(L, TOKEN_DELIM);
             
         case CHAR_EOF:
             return token_new(L, TOKEN_NONE);
