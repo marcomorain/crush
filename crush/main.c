@@ -1131,8 +1131,28 @@ struct token* lexer_next(struct lexer* L)
     return consume_token(L, buffer_init(&buffer));
 }
 
+static FILE* file_with_contents(const char* data){
+    FILE* file = tmpfile();
+    fwrite(data, strlen(data), 1, file);
+    rewind(file);
+    return file;
+}
+
+void test(const char* data) {
+    FILE* file = file_with_contents(data);
+    struct lexer lexer;
+    lexer_init(&lexer, file);
+    for (;;){
+        struct token* token = lexer_next(&lexer);
+        token_print(token);
+        if (token->type == TOKEN_NONE) break;
+    }
+}
+
 int main(int argc, const char * argv[])
 {
+    test("body { }");
+    
     FILE* input;
     struct lexer L;
     
@@ -1144,8 +1164,8 @@ int main(int argc, const char * argv[])
 
     lexer_init(&L, input);
     
-    //L.logging.consumtion = true;
-    //L.logging.trace = true;
+    L.logging.consumtion = true;
+    L.logging.trace = true;
 
     for (;;)
     {
