@@ -92,6 +92,9 @@ struct token {
     double number;
 };
 
+static double string_to_number(bool integer) {
+    return 0;
+}
 
 void lexer_grow(struct lexer* L)
 {
@@ -277,14 +280,28 @@ struct token* token_new(struct lexer* L, int type) {
         }
         printf("\"");
     }
-    if (type == TOKEN_HASH){
-        printf(" (%s)", (t->id ? "id" :  "unrestricted"));
+
+    switch (type){
+        case TOKEN_NUMBER:
+        case TOKEN_PERCENTAGE:
+        case TOKEN_DIMENSION:
+            t->number = string_to_number(L->integer);
+            printf(" numeric value: %g", t->number);
+            break;
+
+        case TOKEN_HASH:
+            printf(" (%s)", (t->id ? "id" :  "unrestricted"));
+            break;
+
+        case TOKEN_DELIM:
+            t->value = L->current;
+            printf(" '%c'", t->value);
+            break;
+
+        default:
+            break;
     }
 
-    if (type == TOKEN_DELIM){
-        t->value = L->current;
-        printf(" '%c'", t->value);
-    }
     printf("\n");
 
     return t;
