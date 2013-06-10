@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		494DF8E8176667E1003A1D1B /* crush.c in Sources */ = {isa = PBXBuildFile; fileRef = 494DF8E6176667E1003A1D1B /* crush.c */; };
 		8FF2AE3417495C6000B92983 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = 8FF2AE3317495C6000B92983 /* main.c */; };
 		8FF2AE3617495C6000B92983 /* crush.1 in CopyFiles */ = {isa = PBXBuildFile; fileRef = 8FF2AE3517495C6000B92983 /* crush.1 */; };
 /* End PBXBuildFile section */
@@ -25,6 +26,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		494DF8E6176667E1003A1D1B /* crush.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = crush.c; sourceTree = "<group>"; };
+		494DF8E7176667E1003A1D1B /* crush.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = crush.h; sourceTree = "<group>"; };
 		8FF2AE3017495C6000B92983 /* crush */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = crush; sourceTree = BUILT_PRODUCTS_DIR; };
 		8FF2AE3317495C6000B92983 /* main.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
 		8FF2AE3517495C6000B92983 /* crush.1 */ = {isa = PBXFileReference; lastKnownFileType = text.man; path = crush.1; sourceTree = "<group>"; };
@@ -60,6 +63,8 @@
 		8FF2AE3217495C6000B92983 /* crush */ = {
 			isa = PBXGroup;
 			children = (
+				494DF8E6176667E1003A1D1B /* crush.c */,
+				494DF8E7176667E1003A1D1B /* crush.h */,
 				8FF2AE3317495C6000B92983 /* main.c */,
 				8FF2AE3517495C6000B92983 /* crush.1 */,
 			);
@@ -118,6 +123,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8FF2AE3417495C6000B92983 /* main.c in Sources */,
+				494DF8E8176667E1003A1D1B /* crush.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -216,6 +222,7 @@
 				8FF2AE3B17495C6000B92983 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
