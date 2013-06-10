@@ -22,7 +22,7 @@ int test(const char* data, const int* tokens) {
         if (found == TOKEN_NONE) break;
 
         if (found != *tokens){
-            fprintf(stderr, "Error expected token on type %d but got %s", found, token_name(token));
+            fprintf(stderr, "Error expected %s but got %s\n", token_name(*tokens), token_name(found));
             fails++;
             return 0;
         }
@@ -37,6 +37,9 @@ int main(int argc, const char * argv[])
 {
     int a[] = {TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_LEFT_CURLY, TOKEN_WHITESPACE, TOKEN_RIGHT_CURLY};
     test("body { }", a);
-    printf("passed: %d failed: %d", passes, fails);
+
+    int b[] = {TOKEN_STRING};
+    test("'test' s", b);
+    printf("passed: %d failed: %d\n", passes, fails);
     return 0;
 }

@@ -187,8 +187,8 @@ void lexer_consume(struct lexer* L)
     }
 }
 
-const char* token_name(struct token* t){
-    switch (t->type){
+const char* token_name(int t){
+    switch (t){
 #define NAME(X) case (X): return #X;
             NAME(TOKEN_NONE);
             NAME(TOKEN_IDENT);
@@ -277,7 +277,7 @@ struct token* token_new(struct lexer* L, int type, const struct buffer* b) {
 }
 
 void token_print(struct token* t) {
-    printf("%s ", token_name(t));
+    printf("%s ", token_name(t->type));
 
     if (t->buffer_size > 0) {
         printf(" value: \"");

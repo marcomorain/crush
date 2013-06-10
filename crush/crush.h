@@ -7,7 +7,7 @@ struct token;
 struct lexer* lexer_init(FILE* input);
 struct token* lexer_next(struct lexer* L);
 int token_type(struct token* t);
-const char* token_name(struct token* t);
+const char* token_name(int t);
 void token_free(struct token* t);
 
 enum
