@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <ctype.h>
 #include <assert.h>
+#include "crush.h"
 
 // http://dev.w3.org/csswg/css-syntax/#tokenizing-and-parsing-css
 
@@ -111,6 +112,16 @@ struct token {
     double number;
 };
 
+void token_free(struct token* t) {
+    free(t->buffer);
+    free(t);
+}
+
+int token_type(struct token* t) {
+    return t->type;
+}
+
+
 static double string_to_number(bool integer) {
     return 0;
 }
@@ -175,42 +186,6 @@ void lexer_consume(struct lexer* L)
         L->column = 0;
     }
 }
-
-enum
-{
-    TOKEN_NONE = 0,
-    TOKEN_IDENT,
-    TOKEN_FUNCTION,
-    TOKEN_AT_KEYWORD,
-    TOKEN_HASH,
-    TOKEN_STRING,
-    TOKEN_BAD_STRING,
-    TOKEN_URL,
-    TOKEN_BAD_URL,
-    TOKEN_DELIM,
-    TOKEN_NUMBER,
-    TOKEN_PERCENTAGE,
-    TOKEN_DIMENSION,
-    TOKEN_UNICODE_RANGE,
-    TOKEN_INCLUDE_MATCH,
-    TOKEN_DASH_MATCH,
-    TOKEN_PREFIX_MATCH,
-    TOKEN_SUFFIX_MATCH,
-    TOKEN_SUBSTRING_MATCH,
-    TOKEN_COLUMN,
-    TOKEN_WHITESPACE,
-    TOKEN_CDO,
-    TOKEN_CDC,
-    TOKEN_COLON,
-    TOKEN_SEMICOLON,
-    TOKEN_COMMA,
-    TOKEN_LEFT_SQUARE,
-    TOKEN_RIGHT_SQUARE,
-    TOKEN_PAREN_LEFT,
-    TOKEN_PAREN_RIGHT,
-    TOKEN_LEFT_CURLY,
-    TOKEN_RIGHT_CURLY
-};
 
 const char* token_name(struct token* t){
     switch (t->type){
@@ -1117,23 +1092,21 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
     return token_simple(TOKEN_NONE);
 }
 
-void lexer_init(struct lexer* L, FILE* input)
+struct lexer* lexer_init(FILE* input)
 {
-    memset(L, 0, sizeof(struct lexer));
+    struct lexer* L = calloc(sizeof(struct lexer), 1);
     L->input   = input;
     L->next    = fgetc(input);
     L->line    = 1;
+    //L->logging.consumtion = true;
+    ///L->logging.trace = true;
+    return L;
 }
 
 struct token* lexer_next(struct lexer* L)
 {
     struct buffer buffer;
-    return consume_token(L, buffer_init(&buffer));
-}
-
-static FILE* file_with_contents(const char* data){
-    FILE* file = tmpfile();
-    fwrite(data, strlen(data), 1, file);
-    rewind(file);
-    return file;
+    struct token* t = consume_token(L, buffer_init(&buffer));
+    token_print(t);
+    return t;
 }
