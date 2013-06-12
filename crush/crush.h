@@ -1,16 +1,7 @@
 #pragma once
 #include <stdio.h>
 
-
-struct lexer;
-struct token;
-struct lexer* lexer_init(FILE* input);
-struct token* lexer_next(struct lexer* L);
-int token_type(struct token* t);
-const char* token_name(int t);
-void token_free(struct token* t);
-
-enum
+enum token_type
 {
     TOKEN_NONE = 0,
     TOKEN_IDENT,
@@ -45,3 +36,13 @@ enum
     TOKEN_LEFT_CURLY,
     TOKEN_RIGHT_CURLY
 };
+
+struct lexer;
+struct token;
+struct lexer* lexer_init(FILE* input);
+struct token* lexer_next(struct lexer* L);
+enum token_type token_type(struct token* t);
+const char* token_name(int t);
+void token_free(struct token* t);
+void token_print(FILE* file, struct token* t);
+

@@ -102,7 +102,7 @@ enum {
 };
 
 struct token {
-    int       type;
+    enum token_type type;
     bool      id;
     unsigned  value;
 
@@ -117,7 +117,7 @@ void token_free(struct token* t) {
     free(t);
 }
 
-int token_type(struct token* t) {
+enum token_type token_type(struct token* t) {
     return t->type;
 }
 
@@ -276,37 +276,67 @@ struct token* token_new(struct lexer* L, int type, const struct buffer* b) {
     return t;
 }
 
-void token_print(struct token* t) {
-    printf("%s ", token_name(t->type));
+static void buffer_print(FILE* file, struct token* t){
+    for (int i = 0;i< t->buffer_size; i++){
+        fprintf(file, "%c", p(t->buffer[i]));
+    }
+}
 
-    if (t->buffer_size > 0) {
-        printf(" value: \"");
-        for (int i = 0;i< t->buffer_size; i++){
-            printf("%c", p(t->buffer[i]));
-        }
-        printf("\"");
+static int depth = 0;
+
+void token_print(FILE* file, struct token* t) {
+
+    if (t->type == TOKEN_WHITESPACE) {
+        fprintf(file, " ");
+        return;
     }
 
-    switch (t->type){
+    fprintf(file, "|");
+
+    switch (t->type) {
+
+        case TOKEN_AT_KEYWORD:
+            fprintf(file, "@");
+            buffer_print(file, t);
+
+        case TOKEN_LEFT_CURLY:
+            depth++;
+            fprintf(file, "{\n");
+            break;
+
+        case TOKEN_RIGHT_CURLY:
+            depth--;
+            fprintf(file, "}\n");
+
+        case TOKEN_COLON:
+            fprintf(file, " : ");
+            break;
+
+        case TOKEN_SEMICOLON:
+            fprintf(file, ";\n");
+            break;
+
+        case TOKEN_IDENT:
+            buffer_print(stdout, t);
+            break;
+
         case TOKEN_NUMBER:
         case TOKEN_PERCENTAGE:
         case TOKEN_DIMENSION:
-            printf(" numeric value: %g", t->number);
+            //fprintf(file, "%g", t->number);
+            buffer_print(file, t);
             break;
 
         case TOKEN_HASH:
-            printf(" (%s)", (t->id ? "id" :  "unrestricted"));
+            fprintf(file, "#");
+            buffer_print(file, t);
+            fprintf(file, " (%s)", (t->id ? "id" :  "unrestricted"));
             break;
 
         case TOKEN_DELIM:
-            printf(" (%c)", t->value);
-            break;
-
-        default:
+            fprintf(file, "%c", t->value);
             break;
     }
-
-    printf("\n");
 }
 
 struct token* consume_token(struct lexer* L, struct buffer* b);
@@ -559,7 +589,7 @@ struct token* state_ident(struct lexer* L, struct buffer* b) {
     // Otherwise, emit a <function> token with its value set to the <ident>’s value. Switch to the data state.
     if (L->current == '(') {
         // TODO: check for URL.
-        token_new(L, TOKEN_FUNCTION, b);
+        return token_new(L, TOKEN_FUNCTION, b);
     }
 
     // anything else
@@ -1099,14 +1129,12 @@ struct lexer* lexer_init(FILE* input)
     L->next    = fgetc(input);
     L->line    = 1;
     //L->logging.consumtion = true;
-    ///L->logging.trace = true;
+    //L->logging.trace = true;
     return L;
 }
 
 struct token* lexer_next(struct lexer* L)
 {
     struct buffer buffer;
-    struct token* t = consume_token(L, buffer_init(&buffer));
-    token_print(t);
-    return t;
+    return consume_token(L, buffer_init(&buffer));
 }

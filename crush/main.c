@@ -19,6 +19,7 @@ int main(int argc, const char * argv[])
         if (token_type(token) == TOKEN_NONE) {
             break;
         }
+        token_print(stdout, token);
     }
 
     return 0;
