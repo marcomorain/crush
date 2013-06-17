@@ -318,9 +318,15 @@ void token_print(FILE* file, struct token* t) {
 
     switch (t->type) {
 
+        case TOKEN_FUNCTION:
+            fprintf(file, "Function: ");
+            buffer_print(file, t);
+            break;
+
         case TOKEN_AT_KEYWORD:
             fprintf(file, "@");
             buffer_print(file, t);
+            break;
 
         case TOKEN_LEFT_CURLY:
             depth++;
