@@ -72,8 +72,6 @@ char p(char c){
     return c == '\n' ? '^' : c;
 }
 
-
-
 enum {
     CHAR_NULL              = 0,
     CHAR_TABULATION        = 0x9,
@@ -81,25 +79,37 @@ enum {
     CHAR_FORM_FEED         = 0xC,
     CHAR_CARRIAGE_RETURN   = 0xD,
     CHAR_SPACE             = 0x20,
+    CHAR_EXCLAMATION_MARK  = 0x21,
     CHAR_QUOTATION_MARK    = 0x22,
     CHAR_NUMBER_SIGN       = 0x23,
+    CHAR_DOLLAR_SIGN       = 0x24,
     CHAR_PERCENT_SIGN      = 0x25,
     CHAR_APOSTROPHE        = 0x27,
+    CHAR_LEFT_PARENTHESIS  = 0x28,
+    CHAR_RIGHT_PARENTHESIS = 0x29,
     CHAR_ASTERISK          = 0x2A,
     CHAR_PLUS_SIGN         = 0x2B,
+    CHAR_COMMA             = 0x2C,
     CHAR_HYPHEN_MINUS      = 0x2D,
     CHAR_FULL_STOP         = 0x2E,
     CHAR_CIRCUMFLEX_ACCENT = 0x5E,
     CHAR_SOLIDUS           = 0x2F,
+    CHAR_COLON             = 0x3A,
+    CHAR_SEMICOLON         = 0x3B,
     CHAR_LESS_THAN         = 0x3C,
+    CHAR_EQUALS_SIGN       = 0x3D,
     CHAR_GREATER_THAN      = 0x3E,
     CHAR_QUESTION_MARK     = 0x3F,
     CHAR_COMMERCIAL_AT     = 0x40,
     CHAR_LATIN_CAPITAL_E   = 0x45,
+    CHAR_LEFT_SQUARE       = 0x5B,
     CHAR_REVERSE_SOLIDUS   = 0x5C,
+    CHAR_RIGHT_SQUARE      = 0x5D,
     CHAR_LOW_LINE          = 0x5F,
     CHAR_LATIN_SMALL_E     = 0x65,
+    CHAR_LEFT_CURLY        = 0x7B,
     CHAR_VERTICAL_LINE     = 0x7C,
+    CHAR_RIGHT_CURLY       = 0x7D,
     CHAR_TILDE             = 0x7E,
     CHAR_CONTROL           = 0x80,
     CHAR_REPLACEMENT       = 0xFFFD,
@@ -395,8 +405,8 @@ cp peek(FILE* input) {
 static bool whitespace(cp c) {
     switch (c) {
         case CHAR_LINE_FEED:
-        case '\t':
-        case ' ':
+        case CHAR_TABULATION:
+        case CHAR_SPACE:
             return true;
         default:
             return false;
@@ -598,7 +608,7 @@ struct token* state_ident(struct lexer* L, struct buffer* b) {
     // U+0028 LEFT PARENTHESIS (()
     // If the <ident>’s value is an ASCII case-insensitive match for "url", switch to the url state.
     // Otherwise, emit a <function> token with its value set to the <ident>’s value. Switch to the data state.
-    if (L->current == '(') {
+    if (L->current == CHAR_LEFT_PARENTHESIS) {
         // TODO: check for URL.
         return token_new(L, TOKEN_FUNCTION, b);
     }
@@ -650,7 +660,7 @@ struct token* state_number_end(struct lexer* L, struct buffer* b)
     TRACE(L);
     lexer_consume(L);
 
-    switch (L->current){
+    switch (L->current) {
         case CHAR_PERCENT_SIGN:
             return token_new(L, TOKEN_PERCENTAGE, b);
 
@@ -955,34 +965,34 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
 
             return token_delim(L->current);
 
-        case '$':
-            if (L->next == '=') {
+        case CHAR_DOLLAR_SIGN:
+            if (L->next == CHAR_EQUALS_SIGN) {
                 lexer_consume(L);
                 return token_simple(TOKEN_SUFFIX_MATCH);
             }
             return token_delim(L->current);
 
-        case '(':
+        case CHAR_LEFT_PARENTHESIS:
             return token_simple(TOKEN_PAREN_LEFT);
 
-        case ')':
+        case CHAR_RIGHT_PARENTHESIS:
             return token_simple(TOKEN_PAREN_RIGHT);
 
         case CHAR_ASTERISK:
-            if (L->next == '=') {
+            if (L->next == CHAR_EQUALS_SIGN) {
                 lexer_consume(L);
                 return token_simple(TOKEN_SUBSTRING_MATCH);
             }
             return token_delim(L->current);
 
-        case '+':
+        case CHAR_PLUS_SIGN:
             if (lexer_starts_with_number(L)){
                 lexer_recomsume(L);
                 return state_number(L, b);
             }
             return token_delim(L->current);
 
-        case ',':
+        case CHAR_COMMA:
             return token_simple(TOKEN_COMMA);
 
         case CHAR_HYPHEN_MINUS:
@@ -1036,22 +1046,22 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
             }
             return token_delim(L->current);
 
-        case ':':
+        case CHAR_COLON:
             return token_simple(TOKEN_COLON);
 
-        case ';':
+        case CHAR_SEMICOLON:
             return token_simple(TOKEN_SEMICOLON);
 
         case CHAR_LESS_THAN:
-            if (lexer_next_three_are(L, '!', CHAR_HYPHEN_MINUS, CHAR_HYPHEN_MINUS)){
+            if (lexer_next_three_are(L, CHAR_EXCLAMATION_MARK, CHAR_HYPHEN_MINUS, CHAR_HYPHEN_MINUS)){
                 return token_simple(TOKEN_CDO);
             }
             return token_delim(L->current);
 
-        case '{':
+        case CHAR_LEFT_CURLY:
             return token_simple(TOKEN_LEFT_CURLY);
 
-        case '}':
+        case CHAR_RIGHT_CURLY:
             return token_simple(TOKEN_RIGHT_CURLY);
 
         case CHAR_COMMERCIAL_AT:
@@ -1066,10 +1076,10 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
             return token_delim(L->current);
 
 
-        case '[':
+        case CHAR_LEFT_SQUARE:
             return token_simple(TOKEN_LEFT_SQUARE);
 
-        case ']':
+        case CHAR_RIGHT_SQUARE:
             return token_simple(TOKEN_RIGHT_SQUARE);
 
         case CHAR_CIRCUMFLEX_ACCENT:
@@ -1091,7 +1101,7 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
             return token_simple(TOKEN_DELIM);
 
         case CHAR_TILDE:
-            if (L->next == '=') {
+            if (L->next == CHAR_EQUALS_SIGN) {
                 lexer_consume(L);
                 return token_simple(TOKEN_INCLUDE_MATCH);
             }
