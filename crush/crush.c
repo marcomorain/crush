@@ -11,11 +11,14 @@
 
 const static unsigned BUFFER_INIT_MAX = 32;
 
+// Code point
+typedef int cp;
+
 struct buffer {
-    unsigned* data;
-    unsigned  capacity;
-    unsigned  size;
-    unsigned  initial[BUFFER_INIT_MAX];
+    size_t capacity;
+    size_t size;
+    cp* data;
+    cp  initial[BUFFER_INIT_MAX];
 };
 
 struct buffer* buffer_init(struct buffer* b) {
@@ -28,16 +31,16 @@ struct buffer* buffer_init(struct buffer* b) {
 
 void buffer_grow(struct buffer* b)
 {
-    unsigned* data = b->data;
-    b->data = malloc(2 * b->capacity * sizeof(unsigned));
-    memcpy(b->data, data, b->capacity * sizeof(unsigned));
+    cp* data = b->data;
+    b->data = malloc(2 * b->capacity * sizeof(cp));
+    memcpy(b->data, data, b->capacity * sizeof(cp));
     b->capacity *= 2;
     if (data != b->initial){
         free(data);
     }
 
 }
-struct buffer* buffer_push(struct buffer* b, unsigned c) {
+struct buffer* buffer_push(struct buffer* b, cp c) {
     if (b->size == b->capacity) {
         buffer_grow(b);
     }
@@ -49,12 +52,12 @@ struct lexer {
     FILE* input;
 
     // The last character to have been consumed.
-    unsigned current;
+    cp current;
 
     // The first character in the input stream that has not yet been consumed.
-    unsigned next;
-    unsigned line;
-    unsigned column;
+    cp next;
+    cp line;
+    cp column;
     bool integer;
     bool id; // for hash
 
@@ -107,9 +110,9 @@ enum {
 struct token {
     enum token_type type;
     bool      id;
-    unsigned  value;
+    cp  value;
 
-    unsigned* buffer;
+    cp* buffer;
     size_t    buffer_size;
 
     double number;
@@ -129,6 +132,13 @@ static double string_to_number(bool integer) {
     return 0;
 }
 
+void ungetcf(int c, FILE* stream){
+    if (ungetc(c, stream) != c){
+        fprintf(stderr, "Error putting 0x%X back into input stream.\n", c);
+        exit(EXIT_FAILURE);
+    }
+}
+
 /*
  3.2.1. Preprocessing the input stream
 
@@ -143,8 +153,8 @@ static double string_to_number(bool integer) {
  FEED (LF) by a single U+000A LINE FEED (LF) character.
  - Replace any U+0000 NULL characters with U+FFFD REPLACEMENT CHARACTER.
  */
-static unsigned lexer_preprocess(FILE* input) {
-    unsigned next = fgetc(input);
+static cp lexer_preprocess(FILE* input) {
+    cp next = fgetc(input);
 
     if (next == CHAR_NULL) {
         return CHAR_REPLACEMENT;
@@ -153,7 +163,7 @@ static unsigned lexer_preprocess(FILE* input) {
     if (next == CHAR_CARRIAGE_RETURN) {
         next = fgetc(input);
         if (next != CHAR_LINE_FEED) {
-            ungetc(next, input);
+            ungetcf(next, input);
         }
         return CHAR_LINE_FEED;
     }
@@ -166,7 +176,7 @@ void lexer_recomsume(struct lexer* L)
     if (L->logging.consumtion) {
         printf("Line %d:%d: unconsuming %c (0x%02X)\n", L->line, L->column, p(L->current), L->current);
     }
-    ungetc(L->next, L->input);
+    ungetcf(L->next, L->input);
     L->next = L->current;
     L->current = CHAR_NULL;
 }
@@ -245,7 +255,7 @@ struct token* token_simple(int type) {
     return t;
 }
 
-struct token* token_delim(unsigned value) {
+struct token* token_delim(cp value) {
     struct token* t = token_simple(TOKEN_DELIM);
     t->value = value;
     return t;
@@ -257,8 +267,8 @@ struct token* token_new(struct lexer* L, int type, const struct buffer* b) {
 
     if (b) {
         t->buffer_size = b->size;
-        t->buffer      = mallocf(b->size * sizeof(unsigned));
-        memcpy(t->buffer, b->data, b->size * sizeof(unsigned));
+        t->buffer      = mallocf(b->size * sizeof(cp));
+        memcpy(t->buffer, b->data, b->size * sizeof(cp));
     }
 
     switch (type){
@@ -365,7 +375,7 @@ void lexer_trace(struct lexer* L, const char* state) {
 // If the first character is not U+005D REVERSE SOLIDUS (\), return false.
 // Otherwise, if the second character is a newline or EOF character, return false.
 // Otherwise, return true.
-static bool valid_escape(unsigned first, unsigned second){
+static bool valid_escape(cp first, cp second){
     if (first != CHAR_REVERSE_SOLIDUS) return false;
     if (second == CHAR_LINE_FEED) return false;
     if (second == CHAR_EOF) return false; // TODO: check for signed / unsigned issues here.
@@ -376,15 +386,13 @@ static bool lexer_valid_escape(struct lexer* L) {
     return valid_escape(L->current, L->next);
 }
 
-unsigned peek(FILE* input) {
-    unsigned result = fgetc(input);
-    if (ungetc(result, input) == EOF) {
-        exit(EXIT_FAILURE);
-    }
+cp peek(FILE* input) {
+    cp result = fgetc(input);
+    ungetcf(result, input);
     return result;
 }
 
-static bool whitespace(unsigned c) {
+static bool whitespace(cp c) {
     switch (c) {
         case CHAR_LINE_FEED:
         case '\t':
@@ -395,19 +403,19 @@ static bool whitespace(unsigned c) {
     }
 }
 
-static bool char_letter(unsigned c) {
+static bool char_letter(cp c) {
     return isupper(c) || islower(c);
 }
 
-static bool char_non_ascii(unsigned c) {
+static bool char_non_ascii(int c) {
     return c >= CHAR_CONTROL;
 }
 
-static bool char_name_start(unsigned c){
+static bool char_name_start(cp c){
     return char_letter(c) || char_non_ascii(c) || c == CHAR_LOW_LINE;
 }
 
-static bool char_name(unsigned c){
+static bool char_name(cp c){
     return char_name_start(c) || isdigit(c) || c == CHAR_HYPHEN_MINUS;
 }
 
@@ -431,7 +439,7 @@ static bool char_name(unsigned c){
 // If the first and second characters are a valid escape, return true.
 // Otherwise, return false.
 
-static bool would_start_ident(unsigned first, unsigned second, unsigned third) {
+static bool would_start_ident(cp first, cp second, cp third) {
     if (first == CHAR_HYPHEN_MINUS){
         if (char_name_start(second)) return true;
         if (valid_escape(second, third))  return true;
@@ -447,17 +455,17 @@ static bool would_start_ident(unsigned first, unsigned second, unsigned third) {
     return false;
 }
 
-static void lexer_next_three(struct lexer* L, unsigned r[3])
+static void lexer_next_three(struct lexer* L, cp r[3])
 {
     r[0] = L->next;
     r[1] = fgetc(L->input);
     r[2] = fgetc(L->input);
-    ungetc(r[2], L->input);
-    ungetc(r[1], L->input);
+    ungetcf(r[2], L->input);
+    ungetcf(r[1], L->input);
 }
 
-static bool lexer_next_three_are(struct lexer* L, unsigned a, unsigned b, unsigned c) {
-    unsigned r[3];
+static bool lexer_next_three_are(struct lexer* L, cp a, cp b, cp c) {
+    cp r[3];
     lexer_next_three(L, r);
     return a == r[0] && b == r[1] && c == r[2];
 }
@@ -467,7 +475,7 @@ static bool lexer_would_start_ident(struct lexer* L) {
 }
 
 static bool lexer_next_would_start_ident(struct lexer* L) {
-    unsigned r[3];
+    cp r[3];
     lexer_next_three(L, r);
     return would_start_ident(r[0], r[1], r[2]);
 }
@@ -482,7 +490,7 @@ static bool lexer_next_would_start_ident(struct lexer* L) {
 //
 // This algorithm will not consume any additional characters.
 //
-static bool starts_with_number(unsigned a, unsigned b, unsigned c)
+static bool starts_with_number(cp a, cp b, cp c)
 {
     // Look at the first character:
     switch (a) {
@@ -516,7 +524,7 @@ static bool lexer_starts_with_number(struct lexer* L) {
     return starts_with_number(L->current, L->next, peek(L->input));
 }
 
-unsigned char hex_to_byte(unsigned hex_char){
+static unsigned char hex_to_byte(cp hex_char){
     hex_char = toupper(hex_char);
     return hex_char > '9' ? hex_char - 'A' + 10 : hex_char - '0';
 }
@@ -541,7 +549,7 @@ unsigned char hex_to_byte(unsigned hex_char){
 // anything else:
 // Return the current input character.
 
-unsigned lexer_consume_escape(struct lexer* L) {
+static cp lexer_consume_escape(struct lexer* L) {
     assert(L->current == CHAR_REVERSE_SOLIDUS);
     lexer_consume(L);
 
@@ -551,11 +559,11 @@ unsigned lexer_consume_escape(struct lexer* L) {
     }
 
     // is hex
-    unsigned result = hex_to_byte(L->current);
+    cp result = hex_to_byte(L->current);
     for (int i=0; i<5; i++){
         if (ishexnumber(L->next)){
             lexer_consume(L);
-            unsigned n = hex_to_byte(L->current);
+            cp n = hex_to_byte(L->current);
             result = (result << 2) | n;
         }
     }
@@ -879,7 +887,7 @@ struct token* consume_unicode_range(struct lexer* L){
 //
 // anything else:
 // Append the current input character to the 〈string〉’s value.
-struct token* consume_string_token(struct lexer* L, struct buffer* b, unsigned ending)
+struct token* consume_string_token(struct lexer* L, struct buffer* b, cp ending)
 {
     lexer_consume(L);
     TRACE(L);
@@ -1092,7 +1100,7 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
         case CHAR_LATIN_CAPITAL_E:
         case CHAR_LATIN_SMALL_E:
             if (L->next == CHAR_PLUS_SIGN){
-                unsigned second = peek(L->input);
+                cp second = peek(L->input);
                 if(ishexnumber(second) || second == CHAR_QUESTION_MARK){
                     // consume the CHAR_PLUS_SIGN
                     lexer_consume(L);

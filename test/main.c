@@ -38,18 +38,13 @@ int test(const char* data, const int* tokens) {
         return 0;
     }
 
-    fprintf(stdout, "pass\n");
+    fprintf(stdout, "pass => %s\n", data);
     passes++;
     return 1;
 }
 
 int main(int argc, const char * argv[])
 {
-
-    int e[] = {TOKEN_DELIM, TOKEN_NUMBER, TOKEN_NONE};
-    test("$1", e);
-
-
     int a[] = {TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_LEFT_CURLY, TOKEN_WHITESPACE, TOKEN_RIGHT_CURLY, TOKEN_NONE};
     test("body { }", a);
 
@@ -62,7 +57,8 @@ int main(int argc, const char * argv[])
     int d[] = {TOKEN_SUFFIX_MATCH, TOKEN_NONE};
     test("$=", d);
 
-
+    int e[] = {TOKEN_DELIM, TOKEN_NUMBER, TOKEN_NONE};
+    test("$1", e);
 
     int f[] = { TOKEN_SUBSTRING_MATCH, TOKEN_NONE };
     test("*=", f);
