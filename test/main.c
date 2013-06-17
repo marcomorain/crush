@@ -29,17 +29,44 @@ int test(const char* data, const int* tokens) {
         tokens++;
     }
     fclose(file);
+
+    //tokens--;
+
+    if (*tokens != TOKEN_NONE){
+        fprintf(stderr, "Error token none at the end of the input %s\n", token_name(*tokens));
+        fails++;
+        return 0;
+    }
+
+    fprintf(stdout, "pass\n");
     passes++;
     return 1;
 }
 
 int main(int argc, const char * argv[])
 {
-    int a[] = {TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_LEFT_CURLY, TOKEN_WHITESPACE, TOKEN_RIGHT_CURLY};
+    int a[] = {TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_LEFT_CURLY, TOKEN_WHITESPACE, TOKEN_RIGHT_CURLY, TOKEN_NONE};
     test("body { }", a);
 
-    int b[] = {TOKEN_STRING};
-    test("'test' s", b);
+    int b[] = {TOKEN_STRING, TOKEN_NONE};
+    test("'test'", b);
+
+    int c[] = {TOKEN_STRING, TOKEN_NONE};
+    test("\"apple\"", c);
+
+    int d[] = {TOKEN_SUFFIX_MATCH, TOKEN_NONE};
+    test("$=", d);
+
+    int e[] = {TOKEN_DELIM, TOKEN_NUMBER, TOKEN_NONE};
+    test("$1", e);
+
+    int f[] = { TOKEN_SUBSTRING_MATCH, TOKEN_NONE };
+    test("*=", f);
+
+    int g[] = { TOKEN_DELIM, TOKEN_NUMBER, TOKEN_NONE };
+    test("*9", g);
+
+
     printf("passed: %d failed: %d\n", passes, fails);
     return 0;
 }

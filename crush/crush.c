@@ -73,9 +73,11 @@ char p(char c){
 
 enum {
     CHAR_NULL              = 0,
+    CHAR_TABULATION        = 0x9,
     CHAR_LINE_FEED         = 0xA,
     CHAR_FORM_FEED         = 0xC,
     CHAR_CARRIAGE_RETURN   = 0xD,
+    CHAR_SPACE             = 0x20,
     CHAR_QUOTATION_MARK    = 0x22,
     CHAR_NUMBER_SIGN       = 0x23,
     CHAR_PERCENT_SIGN      = 0x25,
@@ -99,6 +101,7 @@ enum {
     CHAR_CONTROL           = 0x80,
     CHAR_REPLACEMENT       = 0xFFFD,
     CHAR_EOF               = EOF,
+    CHAR_MAX_CODE_POINT    = 0x10FFFF,
 };
 
 struct token {
@@ -913,17 +916,20 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
     lexer_consume(L);
 
     switch(L->current) {
+
             // A newline, U+0009 CHARACTER TABULATION, or U+0020 SPACE.
         case CHAR_LINE_FEED:
-        case '\t':
-        case ' ':
+        case CHAR_TABULATION:
+        case CHAR_SPACE:
             while(whitespace(L->next)){
                 lexer_consume(L);
             }
             return token_new(L, TOKEN_WHITESPACE, NULL);
 
+            // Fall through for the two string types
         case CHAR_QUOTATION_MARK:
-            return consume_string_token(L, b, CHAR_QUOTATION_MARK);
+        case CHAR_APOSTROPHE:
+            return consume_string_token(L, b, L->current);
 
         case CHAR_NUMBER_SIGN:
             // If the next input character is a name character or the next two
@@ -947,10 +953,6 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
                 return token_simple(TOKEN_SUFFIX_MATCH);
             }
             return token_delim(L->current);
-
-        case CHAR_APOSTROPHE:
-            return consume_string_token(L, b, CHAR_APOSTROPHE);
-            break;
 
         case '(':
             return token_simple(TOKEN_PAREN_LEFT);
