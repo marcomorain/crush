@@ -45,6 +45,11 @@ int test(const char* data, const int* tokens) {
 
 int main(int argc, const char * argv[])
 {
+
+    int e[] = {TOKEN_DELIM, TOKEN_NUMBER, TOKEN_NONE};
+    test("$1", e);
+
+
     int a[] = {TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_LEFT_CURLY, TOKEN_WHITESPACE, TOKEN_RIGHT_CURLY, TOKEN_NONE};
     test("body { }", a);
 
@@ -57,8 +62,7 @@ int main(int argc, const char * argv[])
     int d[] = {TOKEN_SUFFIX_MATCH, TOKEN_NONE};
     test("$=", d);
 
-    int e[] = {TOKEN_DELIM, TOKEN_NUMBER, TOKEN_NONE};
-    test("$1", e);
+
 
     int f[] = { TOKEN_SUBSTRING_MATCH, TOKEN_NONE };
     test("*=", f);
@@ -66,6 +70,11 @@ int main(int argc, const char * argv[])
     int g[] = { TOKEN_DELIM, TOKEN_NUMBER, TOKEN_NONE };
     test("*9", g);
 
+    int h[] = {TOKEN_NUMBER, TOKEN_NONE };
+    test("+1", h);
+
+    int i[] = {TOKEN_DELIM, TOKEN_IDENT, TOKEN_NONE };
+    test("+a", i);
 
     printf("passed: %d failed: %d\n", passes, fails);
     return 0;
