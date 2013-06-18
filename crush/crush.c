@@ -119,13 +119,26 @@ enum {
 
 struct token {
     enum token_type type;
-    bool      id;
-    cp  value;
+
+    union {
+
+        struct  {
+            bool integer; // type is integer or number
+            double value; // Numeric value
+        } number;
+
+        struct {
+            bool id; // hash type is ID?
+        } hash;
+
+        struct {
+            cp value;
+        } delim;
+
+    } value;
 
     cp* buffer;
-    size_t    buffer_size;
-
-    double number;
+    size_t buffer_size;
 };
 
 void token_free(struct token* t) {
@@ -267,13 +280,14 @@ struct token* token_simple(int type) {
 
 struct token* token_delim(cp value) {
     struct token* t = token_simple(TOKEN_DELIM);
-    t->value = value;
+    t->value.delim.value = value;
     return t;
 }
 
 struct token* token_new(struct lexer* L, int type, const struct buffer* b) {
     struct token* t = token_simple(type);
-    t->id = L->id;
+
+    t->value.hash.id = L->id;
 
     if (b) {
         t->buffer_size = b->size;
@@ -285,7 +299,7 @@ struct token* token_new(struct lexer* L, int type, const struct buffer* b) {
         case TOKEN_NUMBER:
         case TOKEN_PERCENTAGE:
         case TOKEN_DIMENSION:
-            t->number = string_to_number(L->integer);
+            t->value.number.value = string_to_number(L->integer);
             break;
 
         case TOKEN_DELIM:
@@ -359,11 +373,11 @@ void token_print(FILE* file, struct token* t) {
         case TOKEN_HASH:
             fprintf(file, "#");
             buffer_print(file, t);
-            fprintf(file, " (%s)", (t->id ? "id" :  "unrestricted"));
+            fprintf(file, " (%s)", (t->value.hash.id ? "id" :  "unrestricted"));
             break;
 
         case TOKEN_DELIM:
-            fprintf(file, "%c", t->value);
+            fprintf(file, "%c", t->value.delim.value);
             break;
     }
 }
@@ -586,46 +600,6 @@ static cp lexer_consume_escape(struct lexer* L) {
     return result;
 }
 
-struct token* state_ident(struct lexer* L, struct buffer* b) {
-    TRACE(L);
-    lexer_consume(L);
-
-    if (char_name(L->current)) {
-        buffer_push(b, L->current);
-        return state_ident(L, b);
-    }
-
-    if (L->current == CHAR_REVERSE_SOLIDUS) {
-        // If the input stream starts with a valid escape, consume an escaped
-        // character.
-        // Append the returned character to the <input>’s value.
-        // Remain in this state.
-        if (lexer_valid_escape(L)) {
-            buffer_push(b, lexer_consume_escape(L));
-            return state_ident(L, b);
-        }
-
-        // Otherwise, emit the <ident>. Switch to the data state. Reconsume the
-        // current input character.
-        lexer_recomsume(L);
-        return token_new(L, TOKEN_IDENT, b);
-    }
-
-    // U+0028 LEFT PARENTHESIS (()
-    // If the <ident>’s value is an ASCII case-insensitive match for "url", switch to the url state.
-    // Otherwise, emit a <function> token with its value set to the <ident>’s value. Switch to the data state.
-    if (L->current == CHAR_LEFT_PARENTHESIS) {
-        // TODO: check for URL.
-        return token_new(L, TOKEN_FUNCTION, b);
-    }
-
-    // anything else
-    // Emit the <ident>. Switch to the data state. Reconsume the current input character.
-    lexer_recomsume(L);
-    return token_new(L, TOKEN_IDENT, b);
-}
-
-
 // 4.3.11. Consume a name
 //
 // This section describes how to consume a name from a stream of characters.
@@ -659,6 +633,32 @@ void consume_name(struct lexer* L, struct buffer* b) {
             return;
         }
     }
+}
+
+struct token* consume_url(struct lexer* L) {
+    assert(0);
+    // TODO: Consume URLS.
+    return TOKEN_NONE;
+}
+
+struct token* consume_ident_like(struct lexer* L, struct buffer* b) {
+    TRACE(L);
+
+    consume_name(L, b);
+
+    if (L->next != CHAR_LEFT_PARENTHESIS) {
+        return token_new(L, TOKEN_IDENT, b);
+    }
+
+    if (b->size == 3 &&
+        tolower(b->data[0]) == 'u' &&
+        tolower(b->data[1]) == 'r' &&
+        tolower(b->data[2]) == 'l') {
+        lexer_consume(L);
+        return consume_url(L);
+    }
+
+    return token_new(L, TOKEN_FUNCTION, b);
 }
 
 struct token* state_number_end(struct lexer* L, struct buffer* b)
@@ -789,7 +789,7 @@ struct token* state_number_rest(struct lexer* L, struct buffer* b) {
     return NULL;
 }
 
-struct token* state_number(struct lexer* L, struct buffer* b)
+struct token* consume_numeric(struct lexer* L, struct buffer* b)
 {
     TRACE(L);
     lexer_consume(L);
@@ -994,7 +994,7 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
         case CHAR_PLUS_SIGN:
             if (lexer_starts_with_number(L)){
                 lexer_recomsume(L);
-                return state_number(L, b);
+                return consume_numeric(L, b);
             }
             return token_delim(L->current);
 
@@ -1004,12 +1004,12 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
         case CHAR_HYPHEN_MINUS:
             if (lexer_starts_with_number(L)){
                 lexer_recomsume(L);
-                return state_number(L, b);
+                return consume_numeric(L, b);
             }
 
             if (lexer_would_start_ident(L)){
                 lexer_recomsume(L);
-                return state_ident(L, b);
+                return consume_ident_like(L, b);
             }
 
             if (L->next == CHAR_HYPHEN_MINUS && peek(L->input) == CHAR_GREATER_THAN) {
@@ -1025,7 +1025,7 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
             // input character and switch to the number state.
             if (lexer_starts_with_number(L)) {
                 lexer_recomsume(L);
-                return state_number(L, b);
+                return consume_numeric(L, b);
             }
             // Otherwise, emit a <delim> token with its value set to the current
             // input character. Remain in this state.
@@ -1124,7 +1124,7 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
                 }
             }
             lexer_recomsume(L);
-            return state_ident(L, b);
+            return consume_ident_like(L, b);
 
 
         case CHAR_EOF:
@@ -1133,12 +1133,12 @@ struct token* consume_token(struct lexer* L, struct buffer* b)
         default:
             if (char_name_start(L->current)) {
                 lexer_recomsume(L);
-                return state_ident(L, b);
+                return consume_ident_like(L, b);
             }
 
             if (isdigit(L->current)){
                 lexer_recomsume(L);
-                return state_number(L, b);
+                return consume_numeric(L, b);
             }
 
             return token_simple(TOKEN_DELIM);
