@@ -408,7 +408,7 @@ void lexer_trace(struct lexer* L, const char* state) {
 static bool valid_escape(cp first, cp second){
     if (first != CHAR_REVERSE_SOLIDUS) return false;
     if (second == CHAR_LINE_FEED) return false;
-    if (second == CHAR_EOF) return false; // TODO: check for signed / unsigned issues here.
+    if (second == CHAR_EOF) return false;
     return true;
 }
 
