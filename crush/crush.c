@@ -29,7 +29,7 @@ struct buffer* buffer_init(struct buffer* b) {
     return b;
 }
 
-void buffer_grow(struct buffer* b)
+static void buffer_grow(struct buffer* b)
 {
     cp* data = b->data;
     b->data = malloc(2 * b->capacity * sizeof(cp));
@@ -38,12 +38,28 @@ void buffer_grow(struct buffer* b)
     if (data != b->initial){
         free(data);
     }
+}
 
+static void buffer_move(struct buffer* dst, struct buffer* src) {
+    // bitwise copy first to set size, capacity and initial data.
+    *dst = *src;
+
+    if (src->data == src->initial) {
+        dst->data = dst->initial;
+    }
+
+    buffer_init(src); // reset src, dst now owns the allocation.
+}
+
+static void buffer_free(struct buffer* b) {
+    if (b->data != b->initial){
+        free(b->data);
+    }
 }
 
 static bool buffer_logging = false;
 
-struct buffer* buffer_push(struct buffer* b, cp c) {
+static struct buffer* buffer_push(struct buffer* b, cp c) {
     if (b->size == b->capacity) {
         buffer_grow(b);
     }
@@ -77,8 +93,7 @@ struct lexer {
     } logging;
 };
 
-char p(char c){
-    // TODO: UNICODE.
+static cp p(cp c) {
     return c == '\n' ? '^' : c;
 }
 
@@ -135,6 +150,7 @@ struct token {
         struct  {
             bool integer; // type is integer or number
             double value; // Numeric value
+            struct buffer unit;
         } number;
 
         struct {
@@ -147,12 +163,15 @@ struct token {
 
     } value;
 
-    cp* buffer;
-    size_t buffer_size;
+    struct buffer buffer;
 };
 
 void token_free(struct token* t) {
-    free(t->buffer);
+
+    buffer_free(&t->buffer);
+    if (t->type == TOKEN_DIMENSION){
+        buffer_free(&t->value.number.unit);
+    }
     free(t);
 }
 
@@ -165,7 +184,7 @@ static double string_to_number(bool integer) {
     return 0;
 }
 
-void ungetcf(int c, FILE* stream){
+static void ungetcf(int c, FILE* stream){
     if (ungetc(c, stream) != c){
         fprintf(stderr, "Error putting 0x%X back into input stream.\n", c);
         exit(EXIT_FAILURE);
@@ -204,7 +223,7 @@ static cp lexer_preprocess(FILE* input) {
     return next;
 }
 
-void lexer_recomsume(struct lexer* L)
+static void lexer_recomsume(struct lexer* L)
 {
     if (L->logging.consumtion) {
         printf("Line %d:%d: unconsuming %c (0x%02X)\n", L->line, L->column, p(L->current), L->current);
@@ -215,7 +234,7 @@ void lexer_recomsume(struct lexer* L)
 }
 
 
-void lexer_consume(struct lexer* L)
+static void lexer_consume(struct lexer* L)
 {
     // consume
     L->current = L->next;
@@ -273,7 +292,7 @@ const char* token_name(int t){
     return "";
 }
 
-void* mallocf(size_t size){
+static void* mallocf(size_t size){
     void* result = malloc(size);
     if (!result) {
         fprintf(stderr, "Error allocating memory");
@@ -282,34 +301,35 @@ void* mallocf(size_t size){
     return result;
 }
 
-struct token* token_simple(int type) {
+static struct token* token_simple(int type) {
     struct token* t = calloc(1, sizeof(struct token));
     t->type = type;
     return t;
 }
 
-struct token* token_delim(cp value) {
+static struct token* token_delim(cp value) {
     struct token* t = token_simple(TOKEN_DELIM);
     t->value.delim.value = value;
     return t;
 }
 
-struct token* token_new(struct lexer* L, int type, const struct buffer* b) {
+static struct token* token_new(struct lexer* L, int type, struct buffer* b) {
     struct token* t = token_simple(type);
 
     t->value.hash.id = L->id;
 
     if (b) {
-        t->buffer_size = b->size;
-        t->buffer      = mallocf(b->size * sizeof(cp));
-        memcpy(t->buffer, b->data, b->size * sizeof(cp));
+        buffer_move(&t->buffer, b);
     }
 
     switch (type){
-        case TOKEN_NUMBER:
         case TOKEN_PERCENTAGE:
         case TOKEN_DIMENSION:
+            assert(0); // done later
+
+        case TOKEN_NUMBER:
             t->value.number.value = string_to_number(L->integer);
+            buffer_init(&t->value.number.unit);
             break;
 
         case TOKEN_DELIM:
@@ -323,13 +343,16 @@ struct token* token_new(struct lexer* L, int type, const struct buffer* b) {
     return t;
 }
 
-static void buffer_print(FILE* file, struct token* t){
-    for (int i = 0;i< t->buffer_size; i++){
-        fprintf(file, "%c", p(t->buffer[i]));
+static void buffer_print_(FILE* file, struct buffer* b){
+    for (int i = 0; i< b->size; i++){
+        fprintf(file, "%c", p(b->data[i]));
     }
 }
 
-static int depth = 0;
+// todo: delete this function
+static void buffer_print(FILE* file, struct token* t){
+    buffer_print_(file, &t->buffer);
+}
 
 void token_print(FILE* file, struct token* t) {
 
@@ -362,12 +385,10 @@ void token_print(FILE* file, struct token* t) {
             break;
 
         case TOKEN_LEFT_CURLY:
-            depth++;
             fprintf(file, "{");
             break;
 
         case TOKEN_RIGHT_CURLY:
-            depth--;
             fprintf(file, "}");
             break;
 
@@ -405,9 +426,9 @@ void token_print(FILE* file, struct token* t) {
     fprintf(file, "]\n");
 }
 
-struct token* consume_token(struct lexer* L, struct buffer* b);
+static struct token* consume_token(struct lexer* L, struct buffer* b);
 
-void lexer_trace(struct lexer* L, const char* state) {
+static void lexer_trace(struct lexer* L, const char* state) {
     if (L->logging.trace) {
         printf("%d:%d %s\n", L->line, L->column, state);
     }
@@ -439,7 +460,7 @@ static bool lexer_valid_escape(struct lexer* L) {
     return valid_escape(L->current, L->next);
 }
 
-cp peek(FILE* input) {
+static cp peek(FILE* input) {
     cp result = fgetc(input);
     ungetcf(result, input);
     return result;
@@ -607,20 +628,24 @@ static cp lexer_consume_escape(struct lexer* L) {
     lexer_consume(L);
 
     // not hex
-    if (!ishexnumber(L->current)) {
-        return L->current;
+    if (ishexnumber(L->current)) {
+        // is hex
+        cp result = hex_to_byte(L->current);
+        for (int i=0; i<5; i++){
+            if (ishexnumber(L->next)){
+                lexer_consume(L);
+                cp n = hex_to_byte(L->current);
+                result = (result << 2) | n;
+            }
+        }
+        return result;
     }
 
-    // is hex
-    cp result = hex_to_byte(L->current);
-    for (int i=0; i<5; i++){
-        if (ishexnumber(L->next)){
-            lexer_consume(L);
-            cp n = hex_to_byte(L->current);
-            result = (result << 2) | n;
-        }
+    if (L->current == CHAR_EOF){
+        return CHAR_REPLACEMENT;
     }
-    return result;
+
+    return L->current;
 }
 
 // 4.3.11. Consume a name
@@ -644,7 +669,7 @@ static cp lexer_consume_escape(struct lexer* L) {
 //   Consume an escaped character. Append the returned character to result.
 // anything else:
 //   Return result.
-void consume_name(struct lexer* L, struct buffer* b) {
+static void consume_name(struct lexer* L, struct buffer* b) {
     TRACE(L);
     for (;;) {
         
@@ -662,12 +687,21 @@ void consume_name(struct lexer* L, struct buffer* b) {
     }
 }
 
-// TODO: make all functions in this file static.
-struct token* consume_string_token(struct lexer* L, struct buffer* b, cp ending);
+static struct token* consume_string_token(struct lexer* L, struct buffer* b, cp ending);
 
-static void consume_bad_url_remnants()
-{
-    assert(0);
+static void consume_bad_url_remnants(struct lexer* L) {
+
+    for (;;) {
+        if (L->next == CHAR_RIGHT_PARENTHESIS || L->next == CHAR_EOF){
+            lexer_consume(L);
+            return;
+        }
+        if (lexer_valid_escape(L)){
+            lexer_consume_escape(L);
+        } else {
+            lexer_consume(L);
+        }
+    }
 }
 
 static bool non_printable(cp c){
@@ -682,7 +716,7 @@ static bool non_printable(cp c){
     return false;
 }
 
-struct token* consume_url(struct lexer* L) {
+static struct token* consume_url(struct lexer* L) {
     TRACE(L);
 
     lexer_consume(L);
@@ -694,19 +728,18 @@ struct token* consume_url(struct lexer* L) {
     struct buffer url;
     buffer_init(&url);
 
-    switch (L->next){
+    switch (L->current){
         case CHAR_EOF:
-        // TODO: should bad URL have data associated with it?
-        return token_simple(TOKEN_BAD_URL);
+        return token_new(L, TOKEN_BAD_URL, &url);
 
         case CHAR_APOSTROPHE:
         case CHAR_QUOTATION_MARK:
         {
-            struct token* href = consume_string_token(L, &url, L->next);
+            struct token* href = consume_string_token(L, &url, L->current);
             href->type = TOKEN_BAD_URL;
             if (href->type == TOKEN_BAD_STRING){
                 // TODO: consume the remnants of a bad url,
-                consume_bad_url_remnants();
+                consume_bad_url_remnants(L);
                 return href;
             }
 
@@ -720,7 +753,7 @@ struct token* consume_url(struct lexer* L) {
                 return href;
             }
 
-            consume_bad_url_remnants();
+            consume_bad_url_remnants(L);
             return href;
         }
 
@@ -754,7 +787,6 @@ struct token* consume_url(struct lexer* L) {
             case CHAR_APOSTROPHE:
             case CHAR_LEFT_PARENTHESIS:
                 goto url_parse_error;
-                // todo: check non-printanble
 
             case CHAR_REVERSE_SOLIDUS:
                 if (lexer_valid_escape(L)){
@@ -770,12 +802,11 @@ struct token* consume_url(struct lexer* L) {
     }
 
 url_parse_error:
-    non_printable(L->current);
-    consume_bad_url_remnants();
+    consume_bad_url_remnants(L);
     return token_new(L, TOKEN_BAD_URL, &url);
 }
 
-struct token* consume_ident_like(struct lexer* L, struct buffer* b) {
+static struct token* consume_ident_like(struct lexer* L, struct buffer* b) {
     TRACE(L);
 
     consume_name(L, b);
@@ -797,167 +828,69 @@ struct token* consume_ident_like(struct lexer* L, struct buffer* b) {
     return token_new(L, TOKEN_FUNCTION, b);
 }
 
-struct token* state_number_end(struct lexer* L, struct buffer* b)
-{
-    TRACE(L);
-    lexer_consume(L);
-
-    switch (L->current) {
-        case CHAR_PERCENT_SIGN:
-            return token_new(L, TOKEN_PERCENTAGE, b);
-
-        case CHAR_HYPHEN_MINUS:
-            // If the input stream starts with an identifier, create a
-            // <dimension> with its representation set to the <number>’s
-            // representation, its value set to the <number>’s value, its type
-            // flag set to the 〈number〉’s type flag, and a unit initially set
-            // to the current input character. Switch to the dimension state.
-            if (lexer_would_start_ident(L)){
-                // todo  <- value
-                // todo  <- dimention
-                // todo: <- unit
-
-                struct buffer dimension;
-                consume_name(L, buffer_init(&dimension));
-                // todo: dimension
-                return token_new(L, TOKEN_DIMENSION, b);
-            }
-            goto state_number_end_default;
-
-        case CHAR_REVERSE_SOLIDUS:
-            // If the input stream starts with a valid escape, consume an escaped
-            // character. Create a <dimension> with its representation set to the
-            // <number>’s representation, its value set to the 〈number〉’s value,
-            // its type flag set to the 〈number〉’s type flag, and a unit initially
-            // set to the returned character. Switch to the dimension state.
-            if (lexer_valid_escape(L)){
-                // todo: dimenion
-                // check buffer here
-                return token_new(L, TOKEN_DIMENSION, b); // todo: < number value
-            } else
-                goto state_number_end_default;
-
-        default:
-            // Otherwise, emit the 〈number〉. Switch to the data state. Reconsume
-            // the current input character.
-        state_number_end_default:
-            lexer_recomsume(L);
-            return token_new(L, TOKEN_NUMBER, b);
-
+static void consume_next_digits(struct lexer* L, struct buffer* b){
+    while(isdigit(L->next)) {
+        buffer_push(b, L->next);
+        lexer_consume(L);
     }
-
 }
 
-
-// 4.3.9. Number-rest state
-//
-// U+0045 LATIN CAPITAL LETTER E (E)
-// U+0065 LATIN SMALL LETTER E (e)
-// If the next input character is a digit, or the next 2 input characters are U+002B
-// PLUS SIGN (+) or U+002D HYPHEN-MINUS (-) followed by a digit, consume them.
-// Append U+0065 LATIN SMALL LETTER E (e) and the consumed characters to the
-// <number>’s representation. Switch to the sci-notation state.
-// Otherwise, switch to the number-end state. Reconsume the current input character.
-struct token* state_number_rest(struct lexer* L, struct buffer* b) {
+static struct token* consume_number(struct lexer* L, struct buffer* b) {
     TRACE(L);
-    lexer_consume(L);
-
-    switch (L->current) {
-        case CHAR_FULL_STOP:
-        {
-            //  U+002E FULL STOP (.)
-            // If the <number’s type flag is currently "integer" and the next
-            // input character is a digit, consume it. Append U+002E FULL STOP (.)
-            // followed by the digit to the <number>’s representation. Set the
-            // <number>’s type flag to "number". Remain in this state.
-            if (L->integer && isdigit(L->next)) {
-                buffer_push(b, L->current);
-                lexer_consume(L);
-                buffer_push(b, L->current);
-                L->integer = false;
-                return state_number_rest(L, b);
-            }
-            // Otherwise, set the <number>’s value to the number produced by
-            // interpreting the <number>’s representation as a base-10 number and
-            // emit it. Switch to the data state. Reconsume the current input
-            // character.
-            lexer_recomsume(L);
-            return token_new(L, TOKEN_NUMBER, b);
-        }
-
-        case CHAR_LATIN_CAPITAL_E:
-        case CHAR_LATIN_SMALL_E:
-            // If the next input character is a digit, or the next 2 input
-            // characters are U+002B PLUS SIGN (+) or U+002D HYPHEN-MINUS (-)
-            // followed by a digit, consume them. Append U+0065 LATIN SMALL
-            // LETTER E (e) and the consumed characters to the 〈number〉’s
-            // representation. Switch to the sci-notation state.
-            if (isdigit(L->next)) {
-                lexer_consume(L);
-                buffer_push(b, CHAR_LATIN_SMALL_E);
-                buffer_push(b, L->current);
-                // TODO
-            }
-            // Otherwise, switch to the number-end state. Reconsume the current
-            // input character.
-            lexer_recomsume(L);
-            return state_number_end(L, b);
-
-        default:
-            if (isdigit(L->current)) {
-                // digit:
-                // Append the current input character to the <number>’s representation. Remain in
-                // this state.
-                buffer_push(b, L->current);
-                return state_number_rest(L, b);
-            } else {
-                // Set the <number>’s value to the number produced by
-                // interpreting the <number>’s representation as a base-10
-                // number. Switch to the number-end state. Reconsume the current
-                // input character.
-                // TODO: parse number as base 10.
-                lexer_recomsume(L);
-                return state_number_end(L, b);
-            }
-    }
-
-    assert(0 && "end of number state");
-    return NULL;
-}
-
-struct token* consume_numeric(struct lexer* L, struct buffer* b)
-{
-    TRACE(L);
-    lexer_consume(L);
     L->integer = true;
 
-    switch(L->current){
-        case CHAR_PLUS_SIGN:
-        case CHAR_HYPHEN_MINUS:
-            buffer_push(b, L->current);
-            if (L->next == CHAR_FULL_STOP) {
-                L->integer = false;
-                lexer_consume(L);
-                buffer_push(b, L->current);
-            }
-            lexer_consume(L);
-            goto number;
+    if (L->next == CHAR_PLUS_SIGN || L->next == CHAR_HYPHEN_MINUS) {
+        buffer_push(b, L->next);
+        lexer_consume(L);
 
-        case CHAR_FULL_STOP:
-            L->integer = false;
-            buffer_push(b, L->current);
-            lexer_consume(L);
-            goto number;
-
-        default:
-            // Reaching this state indicates an error either
-            // in the spec or the implementation.
-            assert(isdigit(L->current));
-        number:
-            buffer_push(b, L->current);
-            return state_number_rest(L, b);
     }
 
+    consume_next_digits(L, b);
+
+
+    if (L->next == CHAR_FULL_STOP && isdigit(peek(L->input))) {
+        buffer_push(b, L->next);
+        lexer_consume(L);
+        buffer_push(b, L->next);
+        lexer_consume(L);
+        L->integer = false;
+
+        consume_next_digits(L, b);
+    }
+
+    if ((L->next == CHAR_LATIN_SMALL_E || L->next == CHAR_LATIN_CAPITAL_E) &&
+        isdigit(peek(L->input))) {
+        buffer_push(b, L->next);
+        lexer_consume(L);
+        buffer_push(b, L->next);
+        lexer_consume(L);
+        L->integer = false;
+
+        consume_next_digits(L, b);
+    }
+
+    return token_new(L, TOKEN_NUMBER, b);
+}
+
+static struct token* consume_numeric(struct lexer* L, struct buffer* b) {
+    TRACE(L);
+
+    struct token* number = consume_number(L, b);
+
+    if (lexer_would_start_ident(L)) {
+        number->type = TOKEN_DIMENSION;
+
+        struct buffer unit;
+
+        consume_name(L, buffer_init(&unit));
+
+        buffer_move(&number->value.number.unit, &unit);
+
+    } else if (L->next == CHAR_PERCENT_SIGN){
+        number->type = TOKEN_PERCENTAGE;
+    }
+
+    return number;
 }
 
 
@@ -968,7 +901,7 @@ struct token* consume_numeric(struct lexer* L, struct buffer* b)
 //
 // Consume the next input character.
 //
-struct token* state_at_keyword(struct lexer* L, struct buffer* b)
+static struct token* state_at_keyword(struct lexer* L, struct buffer* b)
 {
     TRACE(L);
     lexer_consume(L);
@@ -1007,7 +940,7 @@ struct token* state_at_keyword(struct lexer* L, struct buffer* b)
     return token_new(L, TOKEN_AT_KEYWORD, b);
 }
 
-struct token* consume_unicode_range(struct lexer* L){
+static struct token* consume_unicode_range(struct lexer* L){
     assert(0 && "not implemented");
     return token_new(L, TOKEN_UNICODE_RANGE, 0);
 }
@@ -1039,8 +972,9 @@ struct token* consume_unicode_range(struct lexer* L){
 //
 // anything else:
 // Append the current input character to the 〈string〉’s value.
-struct token* consume_string_token(struct lexer* L, struct buffer* b, cp ending)
+static struct token* consume_string_token(struct lexer* L, struct buffer* b, cp ending)
 {
+    assert(ending == CHAR_APOSTROPHE || ending == CHAR_QUOTATION_MARK);
     lexer_consume(L);
     TRACE(L);
 
@@ -1070,7 +1004,7 @@ struct token* consume_string_token(struct lexer* L, struct buffer* b, cp ending)
     return consume_string_token(L, b, ending);
 }
 
-struct token* consume_token(struct lexer* L, struct buffer* b)
+static struct token* consume_token(struct lexer* L, struct buffer* b)
 {
     TRACE(L);
     lexer_consume(L);

@@ -79,6 +79,9 @@ int main(int argc, const char * argv[])
     int k[] = {TOKEN_URL, TOKEN_NONE };
     test("url(http://example.com)", k);
 
+    int l[] = {TOKEN_URL, TOKEN_NONE };
+    test("url(\"http://example.com\")", l);
+
     printf("passed: %d failed: %d\n", passes, fails);
     return 0;
 }
