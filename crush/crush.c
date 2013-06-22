@@ -1,9 +1,9 @@
 #include <stdio.h>
-//#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <math.h>
 #include <assert.h>
 #include "crush.h"
 
@@ -179,9 +179,35 @@ enum token_type token_type(struct token* t) {
     return t->type;
 }
 
+static double num_sign(struct buffer* b, int* current){
+    assert((*current) == 0);
 
-static double string_to_number(bool integer) {
-    return 0;
+    cp first = b->data[0];
+
+    if (first == CHAR_HYPHEN_MINUS) {
+        (*current)++;
+        return -1;
+    }
+
+    if (first == CHAR_PLUS_SIGN) {
+        (*current)++;
+    }
+
+    return 1;
+}
+
+static double string_to_number(struct buffer* b, bool integer) {
+
+    int current = 0;
+
+    double s = num_sign(b, &current);
+    int i = num_integer(b, &current);
+    int f = num_fraction(b, &current);
+    int t = num_exponent_sign(b, &current);
+    int e = num_exponent(b, &current);
+
+    return s * (i + f *  powf(10, -d))·10te;
+
 }
 
 static void ungetcf(int c, FILE* stream){
@@ -328,7 +354,7 @@ static struct token* token_new(struct lexer* L, int type, struct buffer* b) {
             assert(0); // done later
 
         case TOKEN_NUMBER:
-            t->value.number.value = string_to_number(L->integer);
+            t->value.number.value = string_to_number(b, L->integer);
             buffer_init(&t->value.number.unit);
             break;
 
