@@ -40,11 +40,21 @@ void buffer_grow(struct buffer* b)
     }
 
 }
+
+static bool buffer_logging = false;
+
 struct buffer* buffer_push(struct buffer* b, cp c) {
     if (b->size == b->capacity) {
         buffer_grow(b);
     }
     b->data[b->size++] = c;
+    if (buffer_logging){
+        printf("Pushing '%c' input buffer. [", c);
+        for (int i=0; i<b->size; i++){
+            printf("%c", b->data[i]);
+        }
+        printf("] size %ld\n", b->size);
+    }
     return b;
 }
 
@@ -323,14 +333,23 @@ static int depth = 0;
 
 void token_print(FILE* file, struct token* t) {
 
-    if (t->type == TOKEN_WHITESPACE) {
-        fprintf(file, " ");
-        return;
-    }
-
-    fprintf(file, "|");
+    fprintf(file, "[%s => ", token_name(token_type(t)));
 
     switch (t->type) {
+
+        case TOKEN_NONE:
+            break;
+
+        case TOKEN_URL:
+            fprintf(file, "url(");
+            break;
+
+        case TOKEN_STRING:
+            fprintf(file, "'");
+            buffer_print(file, t);
+            fprintf(file, "'");
+            break;
+
 
         case TOKEN_FUNCTION:
             fprintf(file, "Function: ");
@@ -344,19 +363,20 @@ void token_print(FILE* file, struct token* t) {
 
         case TOKEN_LEFT_CURLY:
             depth++;
-            fprintf(file, "{\n");
+            fprintf(file, "{");
             break;
 
         case TOKEN_RIGHT_CURLY:
             depth--;
-            fprintf(file, "}\n");
+            fprintf(file, "}");
+            break;
 
         case TOKEN_COLON:
-            fprintf(file, " : ");
+            fprintf(file, "colon -> : ");
             break;
 
         case TOKEN_SEMICOLON:
-            fprintf(file, ";\n");
+            fprintf(file, "semicolon -> ;");
             break;
 
         case TOKEN_IDENT:
@@ -377,9 +397,12 @@ void token_print(FILE* file, struct token* t) {
             break;
 
         case TOKEN_DELIM:
-            fprintf(file, "%c", t->value.delim.value);
+            fprintf(file, "Delim: %c", t->value.delim.value);
             break;
     }
+
+
+    fprintf(file, "]\n");
 }
 
 struct token* consume_token(struct lexer* L, struct buffer* b);
@@ -624,21 +647,132 @@ static cp lexer_consume_escape(struct lexer* L) {
 void consume_name(struct lexer* L, struct buffer* b) {
     TRACE(L);
     for (;;) {
+        
         lexer_consume(L);
         if (char_name(L->current)) {
             buffer_push(b, L->current);
         } else if (lexer_valid_escape(L)) {
             buffer_push(b, lexer_consume_escape(L));
         } else {
+            // TODO: This seems to break the draft spec:
+            // http://dev.w3.org/csswg/css-syntax/#consume-a-token
+            lexer_recomsume(L);
             return;
         }
     }
 }
 
-struct token* consume_url(struct lexer* L) {
+// TODO: make all functions in this file static.
+struct token* consume_string_token(struct lexer* L, struct buffer* b, cp ending);
+
+static void consume_bad_url_remnants()
+{
     assert(0);
-    // TODO: Consume URLS.
-    return TOKEN_NONE;
+}
+
+static bool non_printable(cp c){
+    // A character between U+0000 NULL and U+0008 BACKSPACE,
+    if (c <= 8) return true;
+    // LINE TABULATION)
+    if (c == 0xB) return true;
+
+    // U+000E SHIFT OUT and U+001F INFORMATION SEPARATOR ONE
+    if (c >= 0xE && c <= 0x1F) return true;
+    if (c == 0x7F) return true;
+    return false;
+}
+
+struct token* consume_url(struct lexer* L) {
+    TRACE(L);
+
+    lexer_consume(L);
+
+    while (whitespace(L->current)){
+        lexer_consume(L);
+    }
+
+    struct buffer url;
+    buffer_init(&url);
+
+    switch (L->next){
+        case CHAR_EOF:
+        // TODO: should bad URL have data associated with it?
+        return token_simple(TOKEN_BAD_URL);
+
+        case CHAR_APOSTROPHE:
+        case CHAR_QUOTATION_MARK:
+        {
+            struct token* href = consume_string_token(L, &url, L->next);
+            href->type = TOKEN_BAD_URL;
+            if (href->type == TOKEN_BAD_STRING){
+                // TODO: consume the remnants of a bad url,
+                consume_bad_url_remnants();
+                return href;
+            }
+
+            // TODO: test for whitespace after the string.
+            while (whitespace(L->next)){
+                lexer_consume(L);
+            }
+            if (L->next == CHAR_RIGHT_PARENTHESIS || L->next == CHAR_EOF) {
+                lexer_consume(L);
+                href->type = TOKEN_URL;
+                return href;
+            }
+
+            consume_bad_url_remnants();
+            return href;
+        }
+
+        default:
+            break;
+    }
+
+    for (;;) {
+        lexer_consume(L);
+
+        switch (L->current) {
+            case CHAR_EOF:
+            case CHAR_RIGHT_PARENTHESIS:
+                return token_new(L, TOKEN_URL, &url);
+                break;
+
+            // whitespace
+            case CHAR_LINE_FEED:
+            case CHAR_TABULATION:
+            case CHAR_SPACE:
+                while(whitespace(L->next)){
+                    lexer_consume(L);
+                }
+                // This seems to duplicate the first case in this switch
+                if (L->next == CHAR_EOF || L->next == CHAR_RIGHT_PARENTHESIS){
+                    lexer_consume(L);
+                    return token_new(L, TOKEN_URL, &url);
+                } else goto url_parse_error;
+
+            case CHAR_QUOTATION_MARK:
+            case CHAR_APOSTROPHE:
+            case CHAR_LEFT_PARENTHESIS:
+                goto url_parse_error;
+                // todo: check non-printanble
+
+            case CHAR_REVERSE_SOLIDUS:
+                if (lexer_valid_escape(L)){
+                    buffer_push(&url, lexer_consume_escape(L));
+                }
+                else goto url_parse_error;
+
+            default:
+                if (non_printable(L->current)) goto url_parse_error;
+                buffer_push(&url, L->current);
+                break;
+        }
+    }
+
+url_parse_error:
+    non_printable(L->current);
+    consume_bad_url_remnants();
+    return token_new(L, TOKEN_BAD_URL, &url);
 }
 
 struct token* consume_ident_like(struct lexer* L, struct buffer* b) {
@@ -653,7 +787,9 @@ struct token* consume_ident_like(struct lexer* L, struct buffer* b) {
     if (b->size == 3 &&
         tolower(b->data[0]) == 'u' &&
         tolower(b->data[1]) == 'r' &&
-        tolower(b->data[2]) == 'l') {
+        tolower(b->data[2]) == 'l' &&
+        L->next == CHAR_LEFT_PARENTHESIS) {
+
         lexer_consume(L);
         return consume_url(L);
     }
@@ -1154,8 +1290,9 @@ struct lexer* lexer_init(FILE* input)
     L->input   = input;
     L->next    = fgetc(input);
     L->line    = 1;
-    //L->logging.consumtion = true;
-    //L->logging.trace = true;
+    L->logging.consumtion = true;
+    L->logging.trace = true;
+    buffer_logging = true;
     return L;
 }
 
