@@ -22,7 +22,8 @@ int test(const char* data, const int* tokens) {
         if (found == TOKEN_NONE) break;
 
         if (found != *tokens){
-            fprintf(stderr, "Error expected %s but got %s\n", token_name(*tokens), token_name(found));
+            fprintf(stderr, "Error in \"%s\" expected %s but got %s\n", data, token_name(*tokens), token_name(found));
+            token_print(stderr, token);
             fails++;
             return 0;
         }
@@ -71,6 +72,12 @@ int main(int argc, const char * argv[])
 
     int i[] = {TOKEN_DELIM, TOKEN_IDENT, TOKEN_NONE };
     test("+a", i);
+
+    int j[] = {TOKEN_IDENT, TOKEN_COLON, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_NONE };
+    test("color: orange", j);
+
+    int k[] = {TOKEN_URL, TOKEN_NONE };
+    test("url(http://example.com)", k);
 
     printf("passed: %d failed: %d\n", passes, fails);
     return 0;
