@@ -196,17 +196,34 @@ static double num_sign(struct buffer* b, int* current){
     return 1;
 }
 
+static int num_integer(struct buffer* b, int* current) {
+    return 0;
+}
+
+static int num_fraction(struct buffer* b, int* current, int* num_digits) {
+    return 0;
+}
+
+static int num_exponent_sign(struct buffer* b, int* current) {
+    return 0;
+}
+
+static int num_exponent(struct buffer* b, int* current) {
+    return 0;
+}
+
 static double string_to_number(struct buffer* b, bool integer) {
 
     int current = 0;
+    int d = 0;
 
     double s = num_sign(b, &current);
     int i = num_integer(b, &current);
-    int f = num_fraction(b, &current);
+    int f = num_fraction(b, &current, &d);
     int t = num_exponent_sign(b, &current);
     int e = num_exponent(b, &current);
 
-    return s * (i + f *  powf(10, -d))·10te;
+    return s * (i + f *  powf(10, -d)) * powf(10, t *e);
 
 }
 
