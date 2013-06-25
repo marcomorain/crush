@@ -196,20 +196,17 @@ static double num_sign(struct buffer* b, int* current){
     return 1;
 }
 
-static int num_integer(struct buffer* b, int* current) {
-    return 0;
-}
+static int num_integer(struct buffer* b, int* current, int* num_digits) {
+    assert((num_digits == 0) || ((*num_digits) == 0));
 
-static int num_fraction(struct buffer* b, int* current, int* num_digits) {
-    return 0;
-}
+    int i = 0;
+    for (cp c = b->data[*current]; isdigit(c); c = b->data[(*current)++]) {
+        i = i * 10;
+        i = i + (c - '0');
 
-static int num_exponent_sign(struct buffer* b, int* current) {
-    return 0;
-}
-
-static int num_exponent(struct buffer* b, int* current) {
-    return 0;
+        if (num_digits) (*num_digits)++;
+    }
+    return i;
 }
 
 static double string_to_number(struct buffer* b, bool integer) {
@@ -218,13 +215,26 @@ static double string_to_number(struct buffer* b, bool integer) {
     int d = 0;
 
     double s = num_sign(b, &current);
-    int i = num_integer(b, &current);
-    int f = num_fraction(b, &current, &d);
-    int t = num_exponent_sign(b, &current);
-    int e = num_exponent(b, &current);
+    int i = num_integer(b, &current, 0);
+
+    if (b->data[current] == '.') {
+        (current)++;
+    }
+
+    int f = num_integer(b, &current, &d);
+
+    int t = 1;
+    double e = 0;
+
+    if (b->data[current] == CHAR_LATIN_CAPITAL_E ||
+        b->data[current] == CHAR_LATIN_SMALL_E) {
+        current++;
+
+        t = num_sign(b, &current);
+        e = num_integer(b, &current, 0);
+    }
 
     return s * (i + f *  powf(10, -d)) * powf(10, t *e);
-
 }
 
 static void ungetcf(int c, FILE* stream){

@@ -31,8 +31,6 @@ int test(const char* data, const int* tokens) {
     }
     fclose(file);
 
-    //tokens--;
-
     if (*tokens != TOKEN_NONE){
         fprintf(stderr, "Error token none at the end of the input %s\n", token_name(*tokens));
         fails++;
