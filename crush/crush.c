@@ -179,8 +179,19 @@ enum token_type token_type(struct token* t) {
     return t->type;
 }
 
+static void buffer_print_(FILE* file, struct buffer* b){
+    for (int i = 0; i< b->size; i++){
+        fprintf(file, "%c", p(b->data[i]));
+    }
+}
+
+// todo: delete this function
+static void buffer_print(FILE* file, struct token* t){
+    buffer_print_(file, &t->buffer);
+}
+
 static double num_sign(struct buffer* b, int* current){
-    assert((*current) == 0);
+    //assert((*current) == 0);
 
     cp first = b->data[0];
 
@@ -200,7 +211,7 @@ static int num_integer(struct buffer* b, int* current, int* num_digits) {
     assert((num_digits == 0) || ((*num_digits) == 0));
 
     int i = 0;
-    for (cp c = b->data[*current]; isdigit(c); c = b->data[(*current)++]) {
+    for (cp c = b->data[*current]; isdigit(c); c = b->data[++(*current)]) {
         i = i * 10;
         i = i + (c - '0');
 
@@ -234,7 +245,14 @@ static double string_to_number(struct buffer* b, bool integer) {
         e = num_integer(b, &current, 0);
     }
 
-    return s * (i + f *  powf(10, -d)) * powf(10, t *e);
+    double result = s * (i + f *  powf(10, -d)) * powf(10, t *e);
+
+    printf("Parsing buffer: ");
+    buffer_print_(stdout, b);
+    printf(" to number %g\n", result);
+
+    return result;
+
 }
 
 static void ungetcf(int c, FILE* stream){
@@ -381,7 +399,7 @@ static struct token* token_new(struct lexer* L, int type, struct buffer* b) {
             assert(0); // done later
 
         case TOKEN_NUMBER:
-            t->value.number.value = string_to_number(b, L->integer);
+            t->value.number.value = string_to_number(&t->buffer, L->integer);
             buffer_init(&t->value.number.unit);
             break;
 
@@ -394,17 +412,6 @@ static struct token* token_new(struct lexer* L, int type, struct buffer* b) {
     }
 
     return t;
-}
-
-static void buffer_print_(FILE* file, struct buffer* b){
-    for (int i = 0; i< b->size; i++){
-        fprintf(file, "%c", p(b->data[i]));
-    }
-}
-
-// todo: delete this function
-static void buffer_print(FILE* file, struct token* t){
-    buffer_print_(file, &t->buffer);
 }
 
 void token_print(FILE* file, struct token* t) {
@@ -895,11 +902,9 @@ static struct token* consume_number(struct lexer* L, struct buffer* b) {
     if (L->next == CHAR_PLUS_SIGN || L->next == CHAR_HYPHEN_MINUS) {
         buffer_push(b, L->next);
         lexer_consume(L);
-
     }
 
     consume_next_digits(L, b);
-
 
     if (L->next == CHAR_FULL_STOP && isdigit(peek(L->input))) {
         buffer_push(b, L->next);
@@ -1287,4 +1292,10 @@ struct token* lexer_next(struct lexer* L)
 {
     struct buffer buffer;
     return consume_token(L, buffer_init(&buffer));
+}
+
+// Test
+double token_number(struct token* t) {
+    assert(t->type == TOKEN_NUMBER);
+    return t->value.number.value;
 }

@@ -46,3 +46,6 @@ const char* token_name(int t);
 void token_free(struct token* t);
 void token_print(FILE* file, struct token* t);
 
+// Test
+double token_number(struct token* t);
+
