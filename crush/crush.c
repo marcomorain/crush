@@ -161,6 +161,11 @@ struct token {
             cp value;
         } delim;
 
+        struct {
+            cp start;
+            cp end;
+        } range;
+
     } value;
 
     struct buffer buffer;
@@ -191,9 +196,7 @@ static void buffer_print(FILE* file, struct token* t){
 }
 
 static double num_sign(struct buffer* b, int* current){
-    //assert((*current) == 0);
-
-    cp first = b->data[0];
+    cp first = b->data[*current];
 
     if (first == CHAR_HYPHEN_MINUS) {
         (*current)++;
@@ -220,6 +223,18 @@ static int num_integer(struct buffer* b, int* current, int* num_digits) {
     return i;
 }
 
+static bool is_exp(cp c) {
+    return c == CHAR_LATIN_CAPITAL_E || c == CHAR_LATIN_SMALL_E;
+}
+
+static bool is_sign(cp c) {
+    return c == CHAR_PLUS_SIGN || c == CHAR_HYPHEN_MINUS;
+}
+
+static double compute_value(double s, double i, double f, double d, double t, double e) {
+    return s * (i + f *  powf(10, -d)) * powf(10, t*e);
+}
+
 static double string_to_number(struct buffer* b, bool integer) {
 
     int current = 0;
@@ -237,15 +252,14 @@ static double string_to_number(struct buffer* b, bool integer) {
     int t = 1;
     double e = 0;
 
-    if (b->data[current] == CHAR_LATIN_CAPITAL_E ||
-        b->data[current] == CHAR_LATIN_SMALL_E) {
+    if (is_exp(b->data[current])) {
         current++;
 
         t = num_sign(b, &current);
         e = num_integer(b, &current, 0);
     }
 
-    double result = s * (i + f *  powf(10, -d)) * powf(10, t *e);
+    double result = compute_value(s, i, f, d, t, e);
 
     printf("Parsing buffer: ");
     buffer_print_(stdout, b);
@@ -899,7 +913,7 @@ static struct token* consume_number(struct lexer* L, struct buffer* b) {
     TRACE(L);
     L->integer = true;
 
-    if (L->next == CHAR_PLUS_SIGN || L->next == CHAR_HYPHEN_MINUS) {
+    if (is_sign(L->next)) {
         buffer_push(b, L->next);
         lexer_consume(L);
     }
@@ -916,15 +930,26 @@ static struct token* consume_number(struct lexer* L, struct buffer* b) {
         consume_next_digits(L, b);
     }
 
-    if ((L->next == CHAR_LATIN_SMALL_E || L->next == CHAR_LATIN_CAPITAL_E) &&
-        isdigit(peek(L->input))) {
-        buffer_push(b, L->next);
-        lexer_consume(L);
-        buffer_push(b, L->next);
-        lexer_consume(L);
-        L->integer = false;
 
-        consume_next_digits(L, b);
+    cp next3[3];
+    lexer_next_three(L, next3);
+
+    if (is_exp(next3[0])) {
+
+        int take = 0;
+
+        if (isdigit(next3[1])) take = 2;
+        if (is_sign(next3[1]) && isdigit(next3[2])) take = 3;
+
+        if (take > 0) {
+
+            for (int i=0; i<take; i++) {
+                buffer_push(b, L->next);
+                lexer_consume(L);
+            }
+            consume_next_digits(L, b);
+            L->integer = false;
+        }
     }
 
     return token_new(L, TOKEN_NUMBER, b);
@@ -1282,9 +1307,9 @@ struct lexer* lexer_init(FILE* input)
     L->input   = input;
     L->next    = fgetc(input);
     L->line    = 1;
-    L->logging.consumtion = true;
-    L->logging.trace = true;
-    buffer_logging = true;
+    //L->logging.consumtion = true;
+    //L->logging.trace = true;
+    //buffer_logging = true;
     return L;
 }
 

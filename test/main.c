@@ -24,7 +24,7 @@ static FILE* file_with_contents(const char* data){
     return file;
 }
 
-int test_number(const char* repr, double value){
+int test_number_to(const char* repr, double value, double delta) {
     FILE* file = file_with_contents(repr);
     struct lexer* lexer = lexer_init(file);
     struct token* token = lexer_next(lexer);
@@ -35,12 +35,9 @@ int test_number(const char* repr, double value){
 
     double actual = token_number(token);
 
-
-
-    token = lexer_next(lexer);
-
-    if (token_type(token) != TOKEN_NONE){
-        return fail("Token was %s, expected end of input\n", token_name(token_type(token)));
+    struct token* then = lexer_next(lexer);
+    if (token_type(then) != TOKEN_NONE){
+        return fail("Token was %s, expected end of input\n", token_name(token_type(then)));
     }
 
     if (fabs(actual - value) > 0.0000001){
@@ -49,6 +46,10 @@ int test_number(const char* repr, double value){
 
     passes++;
     return EXIT_SUCCESS;
+}
+
+int test_number(const char* repr, double value) {
+    return test_number_to(repr, value, 0.0000001);
 }
 
 int test(const char* data, const int* tokens) {
@@ -81,7 +82,7 @@ int test(const char* data, const int* tokens) {
 
 int main(int argc, const char * argv[])
 {
-    test_number("123E+123", 123E+123);
+    test_number("123E+10", 123E+10);
     test_number("1.0", 1.0);
     test_number("1.01", 1.01);
     test_number("-8", -8);
