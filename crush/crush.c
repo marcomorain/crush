@@ -127,11 +127,13 @@ enum {
     CHAR_QUESTION_MARK     = 0x3F,
     CHAR_COMMERCIAL_AT     = 0x40,
     CHAR_LATIN_CAPITAL_E   = 0x45,
+    CHAR_LATIN_CAPITAL_U   = 0x55,
     CHAR_LEFT_SQUARE       = 0x5B,
     CHAR_REVERSE_SOLIDUS   = 0x5C,
     CHAR_RIGHT_SQUARE      = 0x5D,
     CHAR_LOW_LINE          = 0x5F,
     CHAR_LATIN_SMALL_E     = 0x65,
+    CHAR_LATIN_SMALL_U     = 0x75,
     CHAR_LEFT_CURLY        = 0x7B,
     CHAR_VERTICAL_LINE     = 0x7C,
     CHAR_RIGHT_CURLY       = 0x7D,
@@ -389,6 +391,14 @@ static void* mallocf(size_t size){
 static struct token* token_simple(int type) {
     struct token* t = calloc(1, sizeof(struct token));
     t->type = type;
+    return t;
+}
+
+static struct token* token_range(cp start, cp end) {
+
+    struct token* t = token_simple(TOKEN_UNICODE_RANGE);
+    t->value.range.start = start;
+    t->value.range.end = end;
     return t;
 }
 
@@ -1023,9 +1033,74 @@ static struct token* state_at_keyword(struct lexer* L, struct buffer* b)
     return token_new(L, TOKEN_AT_KEYWORD, b);
 }
 
-static struct token* consume_unicode_range(struct lexer* L){
-    assert(0 && "not implemented");
-    return token_new(L, TOKEN_UNICODE_RANGE, 0);
+static cp unicode_value(struct buffer* start, cp replace) {
+    assert(replace == '0' || replace == 'F');
+    cp result = 0;
+    for (int i=0; i<start->size; i++) {
+        cp value = start->data[i];
+        if (value == CHAR_QUESTION_MARK) {
+            value = replace;
+        }
+        result *= 16;
+        result += hex_to_byte(value);
+    }
+    return result;
+}
+
+static bool read_range(struct lexer* L, struct buffer* b) {
+    assert(b->size == 0);
+
+    for (int i=0; i<6; i++) {
+        if (!ishexnumber(L->next)) break;
+        buffer_push(b, L->next);
+        lexer_consume(L);
+    }
+
+    int q_count = 0;
+
+    for (size_t i = b->size; i<6; i++) {
+        if (L->next != CHAR_QUESTION_MARK) break;
+        buffer_push(b, L->next);
+        lexer_consume(L);
+        q_count++;
+    }
+    return q_count > 0;
+}
+
+static void consume_unicode_range_with_buffers(struct lexer* L,
+                                               struct buffer* start,
+                                               struct buffer* end,
+                                               cp* low,
+                                               cp* high) {
+    int has_q = read_range(L, start);
+
+    if (has_q) {
+        *low  = unicode_value(start, '0');
+        *high = unicode_value(start, 'F');
+        return;
+    }
+
+    if (L->next == CHAR_HYPHEN_MINUS && ishexnumber(peek(L->input))) {
+        lexer_consume(L); // consume the minus
+        has_q = read_range(L, end);
+        *low  = unicode_value(start, '0');
+        *high = unicode_value(end,  'F');
+        assert(!has_q);
+        return;
+    }
+
+    *low = *high = unicode_value(start, '0');
+}
+
+static struct token* consume_unicode_range(struct lexer* L) {
+    cp low, high;
+    struct buffer start, end;
+    buffer_init(&start);
+    buffer_init(&end);
+    consume_unicode_range_with_buffers(L, &start, &end, &low, &high);
+    buffer_free(&start);
+    buffer_free(&end);
+    return token_range(low, high);
 }
 
 
@@ -1266,8 +1341,8 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
             }
             return token_simple(TOKEN_DELIM);
 
-        case CHAR_LATIN_CAPITAL_E:
-        case CHAR_LATIN_SMALL_E:
+        case CHAR_LATIN_CAPITAL_U:
+        case CHAR_LATIN_SMALL_U:
             if (L->next == CHAR_PLUS_SIGN){
                 cp second = peek(L->input);
                 if(ishexnumber(second) || second == CHAR_QUESTION_MARK){
@@ -1323,4 +1398,14 @@ struct token* lexer_next(struct lexer* L)
 double token_number(struct token* t) {
     assert(t->type == TOKEN_NUMBER);
     return t->value.number.value;
+}
+
+int token_range_low(struct token* t) {
+    assert(t->type == TOKEN_UNICODE_RANGE);
+    return t->value.range.start;
+}
+
+int token_range_high(struct token* t) {
+    assert(t->type == TOKEN_UNICODE_RANGE);
+    return t->value.range.end;
 }

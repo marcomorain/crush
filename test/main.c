@@ -24,6 +24,35 @@ static FILE* file_with_contents(const char* data){
     return file;
 }
 
+int test_range(const char* repr, int low, int high) {
+    FILE* file = file_with_contents(repr);
+    struct lexer* lexer = lexer_init(file);
+    struct token* token = lexer_next(lexer);
+
+    if (token_type(token) != TOKEN_UNICODE_RANGE){
+        return fail("Token was %s, not a range\n", token_name(token_type(token)));
+    }
+
+    int actual_low = token_range_low(token);
+    int actual_high = token_range_high(token);
+
+    struct token* then = lexer_next(lexer);
+    if (token_type(then) != TOKEN_NONE){
+        return fail("Token was %s, expected end of input\n", token_name(token_type(then)));
+    }
+
+    if (actual_low != low) {
+        return fail("Expected range low %d but got %d\n", low, actual_low);
+    }
+
+    if (actual_high != high) {
+        return fail("Expected range high %d but got %d\n", high, actual_high);
+    }
+
+    passes++;
+    return EXIT_SUCCESS;
+}
+
 int test_number_to(const char* repr, double value, double delta) {
     FILE* file = file_with_contents(repr);
     struct lexer* lexer = lexer_init(file);
@@ -80,15 +109,18 @@ int test(const char* data, const int* tokens) {
     return 1;
 }
 
-int main(int argc, const char * argv[])
-{
+void numbers() {
     test_number("123E+10", 123E+10);
     test_number("1.0", 1.0);
     test_number("1.01", 1.01);
     test_number("-8", -8);
     test_number("+8", +8);
     test_number("8e1", 8E1);
+}
 
+
+
+void tokens() {
 
     int a[] = {TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_LEFT_CURLY, TOKEN_WHITESPACE, TOKEN_RIGHT_CURLY, TOKEN_NONE};
     test("body { }", a);
@@ -125,6 +157,19 @@ int main(int argc, const char * argv[])
 
     int l[] = {TOKEN_URL, TOKEN_NONE };
     test("url(\"http://example.com\")", l);
+}
+
+void ranges() {
+    test_range("U+1", 1, 1);
+    test_range("U+?", 0, 0xF);
+    test_range("U+15-17", 0x15, 0x17);
+}
+
+int main(int argc, const char * argv[])
+{
+    ranges();
+    numbers();
+    tokens();
 
     printf("passed: %d failed: %d\n", passes, fails);
     return 0;

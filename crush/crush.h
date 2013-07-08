@@ -48,4 +48,7 @@ void token_print(FILE* file, struct token* t);
 
 // Test
 double token_number(struct token* t);
+int token_range_low(struct token* t);
+int token_range_high(struct token* t);
+
 
