@@ -118,8 +118,6 @@ void numbers() {
     test_number("8e1", 8E1);
 }
 
-
-
 void tokens() {
 
     int a[] = {TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_LEFT_CURLY, TOKEN_WHITESPACE, TOKEN_RIGHT_CURLY, TOKEN_NONE};
