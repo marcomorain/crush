@@ -157,6 +157,12 @@ void tokens() {
 
     int l[] = {TOKEN_URL, TOKEN_NONE };
     test("url(\"http://example.com\")", l);
+
+    int m[] = {TOKEN_UNICODE_RANGE, TOKEN_NUMBER, TOKEN_NONE };
+    test("U+1234567", m);
+
+    int n[] = {TOKEN_UNICODE_RANGE, TOKEN_NUMBER, TOKEN_NONE };
+    test("U+123456-1234567", n);
 }
 
 void ranges() {
