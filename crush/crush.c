@@ -1382,9 +1382,9 @@ struct lexer* lexer_init(FILE* input)
     L->input   = input;
     L->next    = fgetc(input);
     L->line    = 1;
-    //L->logging.consumtion = true;
-    //L->logging.trace = true;
-    //buffer_logging = true;
+    L->logging.consumtion = true;
+    L->logging.trace = true;
+    buffer_logging = true;
     return L;
 }
 

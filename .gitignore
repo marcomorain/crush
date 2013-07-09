@@ -16,6 +16,7 @@
 *.out
 *.app
 
+build
 xcuserdata
 bin
 .DS_Store

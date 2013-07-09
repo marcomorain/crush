@@ -93,9 +93,11 @@ int test(const char* data, const int* tokens) {
         if (found != *tokens){
             fail("Error in \"%s\" expected %s but got %s\n", data, token_name(*tokens), token_name(found));
             token_print(stderr, token);
+            token_free(token);
             return 0;
         }
         tokens++;
+        token_free(token);
     }
     fclose(file);
 
@@ -161,6 +163,30 @@ void tokens() {
 
     int n[] = {TOKEN_UNICODE_RANGE, TOKEN_NUMBER, TOKEN_NONE };
     test("U+123456-1234567", n);
+
+    int o[] = { TOKEN_DELIM, TOKEN_NUMBER, TOKEN_INCLUDE_MATCH, TOKEN_NONE };
+    test("~.2~=", o);
+
+    int p[] = { TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_NONE };
+    test("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", p);
+
+    int q[] = { TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_NONE };
+    test("abc\n\rabc\nabc\rabc", q);
+
+    int r[] = {TOKEN_DASH_MATCH, TOKEN_DASH_MATCH, TOKEN_COLUMN, TOKEN_DELIM, TOKEN_NONE};
+    test("|=|=|||", r);
+
+    int s[] = {TOKEN_NUMBER, TOKEN_COMMA, TOKEN_NUMBER, TOKEN_NONE};
+    test("1,456", s);
+
+    int t[] = {TOKEN_HASH, TOKEN_WHITESPACE, TOKEN_DELIM, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_NONE};
+    test("#hashtag # hashtag", t);
+
+    int u[] = {TOKEN_DELIM, TOKEN_IDENT, TOKEN_DELIM, TOKEN_NONE};
+    test("/* a comment *//*another*//slash/", u);
+
+    int v[] = {TOKEN_AT_KEYWORD, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_DELIM, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_NONE};
+    test("@keyword foo @ bar", v);
 }
 
 void ranges() {
