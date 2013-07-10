@@ -10,6 +10,7 @@
 // http://dev.w3.org/csswg/css-syntax/#tokenizing-and-parsing-css
 
 const static unsigned BUFFER_INIT_MAX = 32;
+#define NEVER_RETURN() {assert(0); return 0;}
 
 // Code point
 typedef int cp;
@@ -75,6 +76,9 @@ static struct buffer* buffer_push(struct buffer* b, cp c) {
 }
 
 struct lexer {
+
+    // TODO: Double linked list of tokens in debug to ensure all memory is freed
+    // correctly without leaks.
     FILE* input;
 
     // The last character to have been consumed.
@@ -342,7 +346,7 @@ static void lexer_consume(struct lexer* L)
 const char* token_name(int t){
     switch (t){
 #define NAME(X) case (X): return #X;
-            NAME(TOKEN_NONE);
+            NAME(TOKEN_EOF);
             NAME(TOKEN_IDENT);
             NAME(TOKEN_FUNCTION);
             NAME(TOKEN_AT_KEYWORD);
@@ -376,7 +380,7 @@ const char* token_name(int t){
             NAME(TOKEN_RIGHT_CURLY);
 #undef NAME
     }
-    return "";
+    NEVER_RETURN();
 }
 
 static void* mallocf(size_t size){
@@ -444,7 +448,7 @@ void token_print(FILE* file, struct token* t) {
 
     switch (t->type) {
 
-        case TOKEN_NONE:
+        case TOKEN_EOF:
             break;
 
         case TOKEN_URL:
@@ -1356,7 +1360,7 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
 
 
         case CHAR_EOF:
-            return token_simple(TOKEN_NONE);
+            return token_simple(TOKEN_EOF);
 
         default:
             if (char_name_start(L->current)) {
@@ -1372,8 +1376,7 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
             return token_simple(TOKEN_DELIM);
 
     }
-    printf("Unexpected input at line %d:%d %c (0x%02X)\n", L->line, L->column, p(L->current), L->current);
-    return token_simple(TOKEN_NONE);
+    NEVER_RETURN();
 }
 
 struct lexer* lexer_init(FILE* input)
@@ -1394,7 +1397,7 @@ struct token* lexer_next(struct lexer* L)
     return consume_token(L, buffer_init(&buffer));
 }
 
-// Test
+// Exposed for testing
 double token_number(struct token* t) {
     assert(t->type == TOKEN_NUMBER);
     return t->value.number.value;
@@ -1409,3 +1412,149 @@ int token_range_high(struct token* t) {
     assert(t->type == TOKEN_UNICODE_RANGE);
     return t->value.range.end;
 }
+
+
+// Parse
+
+struct parser {
+    struct token* current;
+    struct token* next;
+    struct lexer* lexer;
+};
+
+struct parser* parser_init(struct parser* parser, struct lexer* lexer) {
+    parser->lexer = lexer;
+    parser->current = parser->next = NULL;
+    return parser;
+}
+
+struct stylesheet {
+    void* rules;
+};
+
+void parser_consume(struct parser* p) {
+    if (p->next) {
+        p->current = p->next;
+        p->next = NULL;
+    } else {
+        p->current = lexer_next(p->lexer);
+    }
+}
+
+void parser_reconsume(struct parser* p) {
+    assert(p->next == NULL);
+    p->next = p->current;
+    p->current = NULL;
+}
+
+static void parse_error(struct parser* p){
+    // todo: print a nice message here.
+}
+
+static void append_rule(void* list, void* rule) {
+}
+
+static void* consume_at_rule(struct parser* p) {
+    NEVER_RETURN();
+}
+
+static void* consume_simple_block(struct parser* p){
+    NEVER_RETURN();
+}
+
+static void* consume_componant_value(struct parser* p){
+    NEVER_RETURN();
+}
+
+// 5.4.3 Consume a qualified rule
+// Create a new qualified rule with its prelude initially set to an empty list,
+// and its value initially set to nothing.
+// Repeatedly consume the next input token:
+//
+// <EOF>:
+// This is a parse error. Return nothing.
+//
+// <{>:
+// Consume a simple block and assign it to the qualified rule's block. Return
+// the qualified rule.
+//
+// simple block with an associated token of <{>:
+// Assign the block to the qualified rule's block. Return the qualified rule.
+//
+// anything else:
+// Reconsume the current input token. Consume a component value. Append the
+// returned value to the qualified rule's prelude.
+static void* consume_qualified_rule(struct parser* p) {
+    parser_consume(p);
+
+    void* prelude = 0;
+    void* block = 0;
+
+    switch (token_type(p->current)) {
+        case TOKEN_EOF:
+            parse_error(p);
+            // parse error
+            return NULL;
+
+        case TOKEN_LEFT_CURLY:
+            block = consume_simple_block(p);
+            NEVER_RETURN();
+            break;
+
+
+        default:
+            parser_reconsume(p);
+            append_rule(prelude, consume_componant_value(p));
+            break;
+    }
+    NEVER_RETURN();
+}
+
+static void* consume_list_of_rules(struct parser* p, bool top_level)
+{
+    parser_consume(p);
+
+    void* result = 0;
+    for (;;) {
+        struct token* token = p->current;
+        switch (token_type(token)) {
+            case TOKEN_WHITESPACE:
+                break;
+
+            case TOKEN_EOF:
+                return result;
+
+            case TOKEN_CDC:
+            case TOKEN_CDO:
+                // If the top-level flag is set, do nothing.
+                if (top_level) break;
+                parser_reconsume(p);
+                append_rule(result, consume_qualified_rule(p));
+                break;
+
+            case TOKEN_AT_KEYWORD:
+                parser_reconsume(p);
+                append_rule(result, consume_at_rule(p));
+                break;
+
+            default:
+                parser_reconsume(p);
+                append_rule(result, consume_qualified_rule(p));
+                break;
+
+        }
+    }
+    NEVER_RETURN();
+}
+
+struct stylesheet* parse_stylesheet(struct lexer* L) {
+    struct parser parser;
+
+    struct stylesheet* result = calloc(sizeof(struct stylesheet), 0);
+
+    result->rules = consume_list_of_rules(parser_init(&parser, L), true);
+    return result;
+}
+
+
+

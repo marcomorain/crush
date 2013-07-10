@@ -3,7 +3,7 @@
 
 enum token_type
 {
-    TOKEN_NONE = 0,
+    TOKEN_EOF = 0,
     TOKEN_IDENT,
     TOKEN_FUNCTION,
     TOKEN_AT_KEYWORD,
@@ -52,3 +52,6 @@ int token_range_low(struct token* t);
 int token_range_high(struct token* t);
 
 
+// Parse
+struct stylesheet;
+struct stylesheet* parse_stylesheet(struct lexer* L);
