@@ -1447,23 +1447,100 @@ void parser_reconsume(struct parser* p) {
     p->current = NULL;
 }
 
-static void parse_error(struct parser* p){
+static void parse_error(struct parser* p) {
     // todo: print a nice message here.
+    fprintf(stderr, "parser error\n");
 }
 
 static void append_rule(void* list, void* rule) {
 }
 
-static void* consume_at_rule(struct parser* p) {
+struct simple_block {
+    enum token_type end;
+    struct token* head;
+};
+
+void* block_append(struct simple_block* block, void* token){
     NEVER_RETURN();
 }
 
-static void* consume_simple_block(struct parser* p){
+static void* consume_component_value(struct parser* p);
+
+static struct simple_block* consume_simple_block(struct parser* p, enum token_type end) {
+    assert(end == TOKEN_PAREN_RIGHT ||
+           end == TOKEN_RIGHT_CURLY ||
+           end == TOKEN_RIGHT_SQUARE);
+
+    struct simple_block* block = calloc(sizeof(struct simple_block), 1);
+    block->end = end;
+
+    for (;;){
+        parser_consume(p);
+        if (p->current->type == TOKEN_EOF ||
+            p->current->type == end) {
+            return block;
+        }
+        parser_reconsume(p);
+        block_append(block, consume_component_value(p));
+    }
+    
     NEVER_RETURN();
 }
 
-static void* consume_componant_value(struct parser* p){
+static void* consume_function(struct parser* p){
     NEVER_RETURN();
+}
+
+static void* consume_component_value(struct parser* p){
+    parser_consume(p);
+    switch (p->current->type) {
+        case TOKEN_LEFT_CURLY:
+        case TOKEN_LEFT_SQUARE:
+        case TOKEN_PAREN_LEFT:
+            return consume_simple_block(p, p->current->type);
+
+        case TOKEN_FUNCTION:
+            return consume_function(p);
+
+        default:
+            return p->current;
+    }
+    NEVER_RETURN();
+}
+
+struct at_rule {
+    struct token* name;
+    void* prelude;
+    void* value; // todo - eq to block?
+    void* block; // todo - eq to value?
+};
+
+void* append_to_prelude(struct at_rule* rule, void* d) {
+    NEVER_RETURN();
+}
+
+static struct at_rule* consume_at_rule(struct parser* p) {
+    struct at_rule* rule = malloc(sizeof(struct at_rule));
+    rule->name = p->current;
+
+    for (;;) {
+
+        parser_consume(p);
+
+        switch(p->current->type) {
+            case TOKEN_SEMICOLON:
+            case TOKEN_EOF:
+                return rule;
+            case TOKEN_LEFT_CURLY:
+                rule->block = consume_simple_block(p, TOKEN_LEFT_CURLY);
+                return rule;
+            // case simple block:
+            default:
+                parser_reconsume(p);
+                append_to_prelude(rule, consume_component_value(p));
+                break;
+        }
+    }
 }
 
 // 5.4.3 Consume a qualified rule
@@ -1497,14 +1574,14 @@ static void* consume_qualified_rule(struct parser* p) {
             return NULL;
 
         case TOKEN_LEFT_CURLY:
-            block = consume_simple_block(p);
+            block = consume_simple_block(p, TOKEN_LEFT_CURLY);
             NEVER_RETURN();
             break;
 
 
         default:
             parser_reconsume(p);
-            append_rule(prelude, consume_componant_value(p));
+            append_rule(prelude, consume_component_value(p));
             break;
     }
     NEVER_RETURN();

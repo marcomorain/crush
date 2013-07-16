@@ -195,10 +195,11 @@ void ranges() {
     test_range("U+15-17", 0x15, 0x17);
 }
 
-void parse() {
+void* parse() {
     FILE* file = file_with_contents("foo");
     struct lexer* lexer = lexer_init(file);
     struct stylesheet* ss = parse_stylesheet(lexer);
+    return ss;
 }
 
 int main(int argc, const char * argv[])
