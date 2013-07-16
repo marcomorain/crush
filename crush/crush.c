@@ -1452,7 +1452,8 @@ static void parse_error(struct parser* p) {
     fprintf(stderr, "parser error\n");
 }
 
-static void append_rule(void* list, void* rule) {
+static void* append_rule(void* list, void* rule) {
+    NEVER_RETURN();
 }
 
 struct simple_block {
@@ -1562,27 +1563,33 @@ static struct at_rule* consume_at_rule(struct parser* p) {
 // Reconsume the current input token. Consume a component value. Append the
 // returned value to the qualified rule's prelude.
 static void* consume_qualified_rule(struct parser* p) {
-    parser_consume(p);
 
+    void* result = NULL; // todo: result
     void* prelude = 0;
     void* block = 0;
 
-    switch (token_type(p->current)) {
-        case TOKEN_EOF:
-            parse_error(p);
-            // parse error
-            return NULL;
+    for (;;)
+    {
+        parser_consume(p);
 
-        case TOKEN_LEFT_CURLY:
-            block = consume_simple_block(p, TOKEN_LEFT_CURLY);
-            NEVER_RETURN();
-            break;
+        switch (token_type(p->current)) {
+            case TOKEN_EOF:
+                parse_error(p);
+                // parse error
+                return NULL;
 
+            case TOKEN_LEFT_CURLY:
+                block = consume_simple_block(p, TOKEN_LEFT_CURLY);
+                return result;
 
-        default:
-            parser_reconsume(p);
-            append_rule(prelude, consume_component_value(p));
-            break;
+            // case simple block
+            // TODO. handle this.
+
+            default:
+                parser_reconsume(p);
+                append_rule(prelude, consume_component_value(p));
+                break;
+        }
     }
     NEVER_RETURN();
 }
