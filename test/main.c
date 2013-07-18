@@ -69,7 +69,7 @@ int test_number_to(const char* repr, double value, double delta) {
         return fail("Token was %s, expected end of input\n", token_name(token_type(then)));
     }
 
-    if (fabs(actual - value) > 0.0000001){
+    if (fabs(actual - value) > delta) {
         return fail("Expected %g but got %g\n", value, token_number(token));
     }
 
@@ -204,6 +204,8 @@ void* parse() {
 
 int main(int argc, const char * argv[])
 {
+    (void)argc;
+    (void)argv;
     ranges();
     numbers();
     tokens();

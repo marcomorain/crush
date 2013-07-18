@@ -16,7 +16,7 @@ int main(int argc, const char * argv[])
     for (;;)
     {
         struct token* token = lexer_next(L);
-        if (token_type(token) == TOKEN_NONE) {
+        if (token_type(token) == TOKEN_EOF) {
             break;
         }
         token_print(stdout, token);
