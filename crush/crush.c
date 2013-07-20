@@ -1461,12 +1461,39 @@ static void parse_error(struct parser* p, const char* reason) {
             p->current->cursor.column);
 }
 
-struct rule {
-    struct rule* next;
+enum rule_type {
+    RULE_QUALIFIED,
+    RULE_AT
+};
+
+
+struct declaration {
+    struct declaration* next;
     struct token* name;
-    void* prelude;
-    void* value; // todo - eq to block?
-    void* block; // todo - eq to value?
+    struct token* value;
+};
+
+struct simple_block {
+    enum token_type end;
+    struct declaration* head;
+};
+
+struct rule {
+    enum rule_type type;
+    struct rule* next;
+
+    union {
+        struct {
+            struct token* name;
+            void* prelude;
+            void* value; // todo - eq to block?
+            void* block; // todo - eq to value?
+        } at;
+        struct {
+            struct token* prelude;
+            struct simple_block block;
+        } qualified;
+    } rule;
 };
 
 // TODO: This runs order N, should be O(1).
@@ -1479,21 +1506,30 @@ static struct rule* append_rule(struct rule* head, struct rule* rule) {
     return head;
 }
 
-struct simple_block {
-    enum token_type end;
-    struct token* head;
-};
-
 void* block_append(struct simple_block* block, void* token){
     NEVER_RETURN();
 }
 
 static void* consume_component_value(struct parser* p);
 
-static struct simple_block* consume_simple_block(struct parser* p, enum token_type end) {
-    assert(end == TOKEN_PAREN_RIGHT ||
-           end == TOKEN_RIGHT_CURLY ||
-           end == TOKEN_RIGHT_SQUARE);
+static struct simple_block* consume_simple_block(struct parser* p, enum token_type start) {
+
+    enum token_type end;
+
+    switch (start) {
+        case TOKEN_PAREN_LEFT:
+            end = TOKEN_PAREN_RIGHT;
+            break;
+        case TOKEN_LEFT_CURLY:
+            end = TOKEN_RIGHT_CURLY;
+            break;
+        case TOKEN_LEFT_SQUARE:
+            end = TOKEN_RIGHT_SQUARE;
+            break;
+        default:
+            parse_error(p, "Invalid token start for block");
+            NEVER_RETURN();
+    }
 
     struct simple_block* block = zmalloc(sizeof(struct simple_block));
     block->end = end;
@@ -1536,9 +1572,15 @@ void* append_to_prelude(struct rule* rule, void* d) {
     NEVER_RETURN();
 }
 
-static struct rule* consume_at_rule(struct parser* p) {
+static struct rule* rule_new(enum rule_type type) {
     struct rule* rule = zmalloc(sizeof(struct rule));
-    rule->name = p->current;
+    rule->type = type;
+    return rule;
+}
+
+static struct rule* consume_at_rule(struct parser* p) {
+    struct rule* rule = rule_new(RULE_AT);
+    rule->rule.at.name = p->current;
 
     for (;;) {
 
@@ -1549,7 +1591,7 @@ static struct rule* consume_at_rule(struct parser* p) {
             case TOKEN_EOF:
                 return rule;
             case TOKEN_LEFT_CURLY:
-                rule->block = consume_simple_block(p, TOKEN_LEFT_CURLY);
+                rule->rule.at.block = consume_simple_block(p, TOKEN_LEFT_CURLY);
                 return rule;
             // case simple block:
             default:
@@ -1578,7 +1620,7 @@ static struct rule* consume_at_rule(struct parser* p) {
 // anything else:
 // Reconsume the current input token. Consume a component value. Append the
 // returned value to the qualified rule's prelude.
-static void* consume_qualified_rule(struct parser* p) {
+static struct rule* consume_qualified_rule(struct parser* p) {
 
     void* result = NULL; // todo: result
     void* prelude = 0;

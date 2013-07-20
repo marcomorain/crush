@@ -196,7 +196,7 @@ void ranges() {
 }
 
 void* parse() {
-    FILE* file = file_with_contents("foo");
+    FILE* file = file_with_contents("foo { width: 100% }");
     struct lexer* lexer = lexer_init(file);
     struct stylesheet* ss = parse_stylesheet(lexer);
     return ss;
