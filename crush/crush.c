@@ -1510,27 +1510,22 @@ void* block_append(struct simple_block* block, void* token){
     NEVER_RETURN();
 }
 
-static void* consume_component_value(struct parser* p);
+static struct declaration* consume_component_value(struct parser* p);
+
+static enum token_type mirror_of(enum token_type t){
+    switch (t) {
+        case TOKEN_PAREN_LEFT:  return TOKEN_PAREN_RIGHT;
+        case TOKEN_LEFT_CURLY:  return TOKEN_RIGHT_CURLY;
+        case TOKEN_LEFT_SQUARE: return TOKEN_RIGHT_SQUARE;
+        default:
+        assert(0);
+        return 0;
+    }
+}
 
 static struct simple_block* consume_simple_block(struct parser* p, enum token_type start) {
 
-    enum token_type end;
-
-    switch (start) {
-        case TOKEN_PAREN_LEFT:
-            end = TOKEN_PAREN_RIGHT;
-            break;
-        case TOKEN_LEFT_CURLY:
-            end = TOKEN_RIGHT_CURLY;
-            break;
-        case TOKEN_LEFT_SQUARE:
-            end = TOKEN_RIGHT_SQUARE;
-            break;
-        default:
-            parse_error(p, "Invalid token start for block");
-            NEVER_RETURN();
-    }
-
+    enum token_type end = mirror_of(start);
     struct simple_block* block = zmalloc(sizeof(struct simple_block));
     block->end = end;
 
@@ -1551,7 +1546,7 @@ static void* consume_function(struct parser* p){
     NEVER_RETURN();
 }
 
-static void* consume_component_value(struct parser* p){
+static struct declaration* consume_component_value(struct parser* p){
     parser_consume(p);
     switch (p->current->type) {
         case TOKEN_LEFT_CURLY:
