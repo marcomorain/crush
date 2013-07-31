@@ -459,6 +459,7 @@ void token_print(FILE* file, struct token* t) {
 
     switch (t->type) {
 
+        default: // TODO: Remove the default and handle the tokens
         case TOKEN_EOF:
             break;
 
@@ -519,6 +520,8 @@ void token_print(FILE* file, struct token* t) {
         case TOKEN_DELIM:
             fprintf(file, "Delim: %c", t->value.delim.value);
             break;
+
+
     }
 
 
@@ -1390,6 +1393,10 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
     NEVER_RETURN();
 }
 
+
+// LEXER  ^^
+// PARSER VV
+
 struct lexer* lexer_init(FILE* input)
 {
     struct lexer* L = zmalloc(sizeof(struct lexer));
@@ -1397,9 +1404,9 @@ struct lexer* lexer_init(FILE* input)
     L->next    = fgetc(input);
     L->cursor.line   = 1;
     L->cursor.column = 1;
-    L->logging.consumtion = true;
+    L->logging.consumtion = false;
     L->logging.trace = true;
-    buffer_logging = true;
+    buffer_logging = false;
     return L;
 }
 
@@ -1491,7 +1498,7 @@ struct rule {
         struct {
             struct token* name;
             void* value; // todo - eq to block?
-            void* block; // todo - eq to value?
+            struct simple_block block;
         } at;
         struct {
             struct token* prelude;
@@ -1510,13 +1517,29 @@ static struct rule* append_rule(struct rule* head, struct rule* rule) {
     return head;
 }
 
-void* block_append(struct simple_block* block, void* token){
-    NEVER_RETURN();
+
+static void parser_skip_ws(struct parser* p) {
+    while (p->current->type == TOKEN_WHITESPACE) {
+        parser_consume(p);
+    }
+}
+
+void block_append(struct simple_block* block, struct declaration* d) {
+    assert(d->next == NULL);
+    if (block->head == NULL) {
+        block->head = d;
+        return;
+    }
+
+    struct declaration* i = block->head;
+    while(i->next) i = i->next;
+    i->next = d;
 }
 
 static struct declaration* consume_component_value(struct parser* p);
+void append_token_to_prelude(struct rule* rule, struct token* token);
 
-static enum token_type mirror_of(enum token_type t){
+static enum token_type mirror_of(enum token_type t) {
     switch (t) {
         case TOKEN_PAREN_LEFT:  return TOKEN_PAREN_RIGHT;
         case TOKEN_LEFT_CURLY:  return TOKEN_RIGHT_CURLY;
@@ -1526,6 +1549,8 @@ static enum token_type mirror_of(enum token_type t){
         return 0;
     }
 }
+
+struct declaration* consume_declaration(struct parser* p);
 
 static struct simple_block* consume_simple_block(struct parser* p, enum token_type start) {
 
@@ -1540,7 +1565,7 @@ static struct simple_block* consume_simple_block(struct parser* p, enum token_ty
             return block;
         }
         parser_reconsume(p);
-        block_append(block, consume_component_value(p));
+        block_append(block, consume_declaration(p));
     }
     
     NEVER_RETURN();
@@ -1567,10 +1592,6 @@ static struct declaration* consume_component_value(struct parser* p){
     NEVER_RETURN();
 }
 
-void* append_to_prelude(struct rule* rule, void* d) {
-    NEVER_RETURN();
-}
-
 static struct rule* rule_new(enum rule_type type) {
     struct rule* rule = zmalloc(sizeof(struct rule));
     rule->type = type;
@@ -1590,32 +1611,54 @@ static struct rule* consume_at_rule(struct parser* p) {
             case TOKEN_EOF:
                 return rule;
             case TOKEN_LEFT_CURLY:
-                rule->rule.at.block = consume_simple_block(p, TOKEN_LEFT_CURLY);
+                rule->rule.at.block = *consume_simple_block(p, TOKEN_LEFT_CURLY);
                 return rule;
             // case simple block:
             default:
                 parser_reconsume(p);
-                append_to_prelude(rule, consume_component_value(p));
+                append_token_to_prelude(rule, consume_component_value(p));
                 break;
         }
     }
 }
 
+struct declaration* consume_declaration(struct parser* p) {
+    NEVER_RETURN();
+}
+
+struct declaration* consume_declaration_list(struct parser* p) {
+    parser_skip_ws(p);
+
+    switch(p->current->type) {
+        case TOKEN_IDENT:
+            parser_reconsume(p);
+            return consume_declaration(p);
+
+        case TOKEN_AT_KEYWORD:
+            parser_reconsume(p);
+            consume_at_rule(p);
+
+        default:
+            parse_error(p, "Declatation expected");
+    }
+    
+    NEVER_RETURN();
+    
+}
 
 void append_token_to_prelude(struct rule* rule, struct token* token) {
-    assert(rule->type == RULE_QUALIFIED);
+    assert(rule->type  == RULE_QUALIFIED);
     assert(token->next == NULL);
+
     if (!rule->rule.qualified.prelude) {
         rule->rule.qualified.prelude = token;
         return;
     }
 
-    for (struct token* i = rule->rule.qualified.prelude;
-         i->next;
-         i = i->next) {
-        assert(i->next == NULL);
-        i->next = token;
-    }
+    struct token* i = rule->rule.qualified.prelude;
+    while(i->next)  i = i->next;
+    assert(i->next == NULL);
+    i->next = token;
 }
 
 // 5.4.3 Consume a qualified rule
@@ -1638,8 +1681,7 @@ void append_token_to_prelude(struct rule* rule, struct token* token) {
 // returned value to the qualified rule's prelude.
 static struct rule* consume_qualified_rule(struct parser* p) {
 
-    struct rule* result = zmalloc(sizeof(struct rule));
-    result->type = RULE_QUALIFIED;
+    struct rule* result = rule_new(RULE_QUALIFIED);
 
     for (;;)
     {
@@ -1652,7 +1694,7 @@ static struct rule* consume_qualified_rule(struct parser* p) {
                 return NULL;
 
             case TOKEN_LEFT_CURLY:
-                result->rule.qualified.block = consume_simple_block(p, TOKEN_LEFT_CURLY);
+                result->rule.qualified.block = *consume_simple_block(p, TOKEN_LEFT_CURLY);
                 return result;
 
             // case simple block
@@ -1660,7 +1702,7 @@ static struct rule* consume_qualified_rule(struct parser* p) {
 
             default:
                 parser_reconsume(p);
-                append_to_prelude(result, consume_component_value(p));
+                append_token_to_prelude(result, consume_component_value(p));
                 break;
         }
     }
