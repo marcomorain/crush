@@ -190,6 +190,11 @@ struct token {
 
     struct buffer buffer;
     struct cursor cursor;
+
+    // TODO: move this to parser
+    // This is the next token in a list of
+    // component values before a qaulified rule
+    struct token* next;
 };
 
 void token_free(struct token* t) {
@@ -1485,7 +1490,6 @@ struct rule {
     union {
         struct {
             struct token* name;
-            void* prelude;
             void* value; // todo - eq to block?
             void* block; // todo - eq to value?
         } at;
@@ -1597,6 +1601,23 @@ static struct rule* consume_at_rule(struct parser* p) {
     }
 }
 
+
+void append_token_to_prelude(struct rule* rule, struct token* token) {
+    assert(rule->type == RULE_QUALIFIED);
+    assert(token->next == NULL);
+    if (!rule->rule.qualified.prelude) {
+        rule->rule.qualified.prelude = token;
+        return;
+    }
+
+    for (struct token* i = rule->rule.qualified.prelude;
+         i->next;
+         i = i->next) {
+        assert(i->next == NULL);
+        i->next = token;
+    }
+}
+
 // 5.4.3 Consume a qualified rule
 // Create a new qualified rule with its prelude initially set to an empty list,
 // and its value initially set to nothing.
@@ -1617,9 +1638,8 @@ static struct rule* consume_at_rule(struct parser* p) {
 // returned value to the qualified rule's prelude.
 static struct rule* consume_qualified_rule(struct parser* p) {
 
-    void* result = NULL; // todo: result
-    void* prelude = 0;
-    void* block = 0;
+    struct rule* result = zmalloc(sizeof(struct rule));
+    result->type = RULE_QUALIFIED;
 
     for (;;)
     {
@@ -1632,7 +1652,7 @@ static struct rule* consume_qualified_rule(struct parser* p) {
                 return NULL;
 
             case TOKEN_LEFT_CURLY:
-                block = consume_simple_block(p, TOKEN_LEFT_CURLY);
+                result->rule.qualified.block = consume_simple_block(p, TOKEN_LEFT_CURLY);
                 return result;
 
             // case simple block
@@ -1640,13 +1660,14 @@ static struct rule* consume_qualified_rule(struct parser* p) {
 
             default:
                 parser_reconsume(p);
-                append_rule(prelude, consume_component_value(p));
+                append_to_prelude(result, consume_component_value(p));
                 break;
         }
     }
     NEVER_RETURN();
 }
 
+// TODO: Is top level always true for documents?
 static struct rule* consume_list_of_rules(struct parser* p, bool top_level)
 {
     parser_consume(p);
