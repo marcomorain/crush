@@ -15,6 +15,8 @@ const static unsigned BUFFER_INIT_MAX = 32;
 // Code point
 typedef int cp;
 
+// TODO: Surrogate code points was added to spec.
+
 static void* zmalloc(size_t size) {
     void* result = calloc(size, 1);
     if (!result) {
@@ -1623,25 +1625,45 @@ static struct rule* consume_at_rule(struct parser* p) {
 }
 
 struct declaration* consume_declaration(struct parser* p) {
+
+    
     NEVER_RETURN();
 }
 
 struct declaration* consume_declaration_list(struct parser* p) {
-    parser_skip_ws(p);
 
-    switch(p->current->type) {
-        case TOKEN_IDENT:
-            parser_reconsume(p);
-            return consume_declaration(p);
+    struct declaration* result = NULL;
 
-        case TOKEN_AT_KEYWORD:
-            parser_reconsume(p);
-            consume_at_rule(p);
+    for (;;) {
+        parser_consume(p);
 
-        default:
-            parse_error(p, "Declatation expected");
+        switch(p->current->type) {
+
+            // Skip
+            case TOKEN_WHITESPACE:
+            case TOKEN_SEMICOLON:
+                continue;
+
+            case TOKEN_EOF:
+                return result;
+
+            case TOKEN_AT_KEYWORD:
+            {
+                struct rule* rule = consume_at_rule(p);
+                // TODO: append rule to result
+                break;
+            }
+
+            case TOKEN_IDENT:
+                parser_reconsume(p);
+                return consume_declaration(p);
+
+            default:
+                parse_error(p, "Declatation expected");
+                NEVER_RETURN();
+        }
     }
-    
+
     NEVER_RETURN();
     
 }
