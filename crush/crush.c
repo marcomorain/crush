@@ -1480,33 +1480,32 @@ enum rule_type {
     RULE_AT
 };
 
-
-struct declaration {
-    struct declaration* next;
-    struct token* name;
-    struct token* value;
+enum component_value_type {
+    CV_BLOCK,
+    CV_FUNCTION,
+    CV_TOKEN
 };
 
-struct simple_block {
-    enum token_type end;
-    struct declaration* head;
+struct component_value {
+    struct component_value* next;
+    enum component_value_type type;
+    union {
+        void* function;
+        struct token* token;
+        struct {
+            enum token_type end;
+            struct component_value* head;
+        } block;
+
+    } data;
 };
 
 struct rule {
-    enum rule_type type;
+    enum rule_type type; // TODO: can be derived form at_name == null.
     struct rule* next;
-
-    union {
-        struct {
-            struct token* name;
-            void* value; // todo - eq to block?
-            struct simple_block block;
-        } at;
-        struct {
-            struct token* prelude;
-            struct simple_block block;
-        } qualified;
-    } rule;
+    struct token* at_name;
+    struct component_value* prelude;
+    struct component_value* block;
 };
 
 // TODO: This runs order N, should be O(1).
@@ -1526,20 +1525,20 @@ static void parser_skip_ws(struct parser* p) {
     }
 }
 
-void block_append(struct simple_block* block, struct declaration* d) {
-    assert(d->next == NULL);
-    if (block->head == NULL) {
-        block->head = d;
+void block_append(struct component_value* block, struct component_value* cv) {
+    assert(cv->next == NULL);
+    if (block->data.block.head == NULL) {
+        block->data.block.head = cv;
         return;
     }
 
-    struct declaration* i = block->head;
+    struct component_value* i = block->data.block.head;
     while(i->next) i = i->next;
-    i->next = d;
+    i->next = cv;
 }
 
-static struct declaration* consume_component_value(struct parser* p);
-void append_token_to_prelude(struct rule* rule, struct token* token);
+static struct component_value* consume_component_value(struct parser* p);
+static void append_token_to_prelude(struct rule* rule, struct component_value* cv);
 
 static enum token_type mirror_of(enum token_type t) {
     switch (t) {
@@ -1552,24 +1551,39 @@ static enum token_type mirror_of(enum token_type t) {
     }
 }
 
-struct declaration* consume_declaration(struct parser* p);
+static struct component_value* component_value_new(enum component_value_type type){
+    struct component_value* cv = zmalloc(sizeof(struct component_value));
+    cv->type = type;
+    return cv;
+}
 
-static struct simple_block* consume_simple_block(struct parser* p, enum token_type start) {
+static struct component_value* component_value_new_token(struct token* token) {
+    struct component_value* result = component_value_new(CV_TOKEN);
+    result->data.token = token;
+    return result;
+}
 
-    enum token_type end = mirror_of(start);
-    struct simple_block* block = zmalloc(sizeof(struct simple_block));
-    block->end = end;
+static struct component_value* component_value_new_block(enum token_type start) {
+    struct component_value* block = component_value_new(CV_BLOCK);
+    block->data.block.end = mirror_of(start);
+    return block;
+}
+
+
+static struct component_value* consume_simple_block(struct parser* p, enum token_type start) {
+
+    struct component_value* block = component_value_new_block(start);
 
     for (;;){
         parser_consume(p);
         if (p->current->type == TOKEN_EOF ||
-            p->current->type == end) {
+            p->current->type == block->data.block.end) {
             return block;
         }
         parser_reconsume(p);
-        block_append(block, consume_declaration(p));
+        block_append(block, consume_component_value(p));
     }
-    
+
     NEVER_RETURN();
 }
 
@@ -1577,7 +1591,7 @@ static void* consume_function(struct parser* p){
     NEVER_RETURN();
 }
 
-static struct declaration* consume_component_value(struct parser* p){
+static struct component_value* consume_component_value(struct parser* p){
     parser_consume(p);
     switch (p->current->type) {
         case TOKEN_LEFT_CURLY:
@@ -1589,7 +1603,11 @@ static struct declaration* consume_component_value(struct parser* p){
             return consume_function(p);
 
         default:
-            return p->current;
+        {
+            struct component_value* result = component_value_new(CV_TOKEN);
+            result->data.token = p->current;
+            return result;
+        }
     }
     NEVER_RETURN();
 }
@@ -1602,7 +1620,7 @@ static struct rule* rule_new(enum rule_type type) {
 
 static struct rule* consume_at_rule(struct parser* p) {
     struct rule* rule = rule_new(RULE_AT);
-    rule->rule.at.name = p->current;
+    rule->at_name = p->current;
 
     for (;;) {
 
@@ -1613,7 +1631,7 @@ static struct rule* consume_at_rule(struct parser* p) {
             case TOKEN_EOF:
                 return rule;
             case TOKEN_LEFT_CURLY:
-                rule->rule.at.block = *consume_simple_block(p, TOKEN_LEFT_CURLY);
+                rule->block = consume_simple_block(p, TOKEN_LEFT_CURLY);
                 return rule;
             // case simple block:
             default:
@@ -1624,63 +1642,19 @@ static struct rule* consume_at_rule(struct parser* p) {
     }
 }
 
-struct declaration* consume_declaration(struct parser* p) {
-
-    
-    NEVER_RETURN();
-}
-
-struct declaration* consume_declaration_list(struct parser* p) {
-
-    struct declaration* result = NULL;
-
-    for (;;) {
-        parser_consume(p);
-
-        switch(p->current->type) {
-
-            // Skip
-            case TOKEN_WHITESPACE:
-            case TOKEN_SEMICOLON:
-                continue;
-
-            case TOKEN_EOF:
-                return result;
-
-            case TOKEN_AT_KEYWORD:
-            {
-                struct rule* rule = consume_at_rule(p);
-                // TODO: append rule to result
-                break;
-            }
-
-            case TOKEN_IDENT:
-                parser_reconsume(p);
-                return consume_declaration(p);
-
-            default:
-                parse_error(p, "Declatation expected");
-                NEVER_RETURN();
-        }
-    }
-
-    NEVER_RETURN();
-    
-}
-
-void append_token_to_prelude(struct rule* rule, struct token* token) {
+static void append_token_to_prelude(struct rule* rule, struct component_value* cv) {
     assert(rule->type  == RULE_QUALIFIED);
-    assert(token->next == NULL);
+    assert(cv->next == NULL);
 
-    if (!rule->rule.qualified.prelude) {
-        rule->rule.qualified.prelude = token;
+    if (!rule->prelude) {
+        rule->prelude = cv;
         return;
     }
 
-    struct token* i = rule->rule.qualified.prelude;
+    struct component_value* i = rule->prelude;
     while(i->next)  i = i->next;
     assert(i->next == NULL);
-    i->next = token;
+    i->next = cv;
 }
 
 // 5.4.3 Consume a qualified rule
@@ -1716,7 +1690,7 @@ static struct rule* consume_qualified_rule(struct parser* p) {
                 return NULL;
 
             case TOKEN_LEFT_CURLY:
-                result->rule.qualified.block = *consume_simple_block(p, TOKEN_LEFT_CURLY);
+                result->block = consume_simple_block(p, TOKEN_LEFT_CURLY);
                 return result;
 
             // case simple block
