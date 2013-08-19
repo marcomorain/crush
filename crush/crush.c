@@ -457,7 +457,7 @@ static struct token* token_new(struct lexer* L, int type, struct buffer* b) {
 
 void token_print(FILE* file, struct token* t) {
 
-    fprintf(file, "[%s => ", token_name(token_type(t)));
+    fprintf(file, "[%s", token_name(token_type(t)));
 
     switch (t->type) {
 
@@ -466,64 +466,53 @@ void token_print(FILE* file, struct token* t) {
             break;
 
         case TOKEN_URL:
-            fprintf(file, "url(");
+            fprintf(file, " url(");
             break;
 
         case TOKEN_STRING:
-            fprintf(file, "'");
+            fprintf(file, " '");
             buffer_print(file, t);
             fprintf(file, "'");
             break;
 
 
         case TOKEN_FUNCTION:
-            fprintf(file, "Function: ");
+            fprintf(file, " Function: ");
             buffer_print(file, t);
             break;
 
         case TOKEN_AT_KEYWORD:
-            fprintf(file, "@");
+            fprintf(file, " @");
             buffer_print(file, t);
             break;
 
         case TOKEN_LEFT_CURLY:
-            fprintf(file, "{");
-            break;
-
         case TOKEN_RIGHT_CURLY:
-            fprintf(file, "}");
-            break;
-
         case TOKEN_COLON:
-            fprintf(file, "colon -> : ");
-            break;
-
         case TOKEN_SEMICOLON:
-            fprintf(file, "semicolon -> ;");
             break;
 
         case TOKEN_IDENT:
+            fprintf(file, " ");
             buffer_print(stdout, t);
             break;
 
         case TOKEN_NUMBER:
         case TOKEN_PERCENTAGE:
         case TOKEN_DIMENSION:
-            //fprintf(file, "%g", t->number);
+            fprintf(file, " Value: %g buffer: ", t->value.number.value);
             buffer_print(file, t);
             break;
 
         case TOKEN_HASH:
-            fprintf(file, "#");
+            fprintf(file, " #");
             buffer_print(file, t);
             fprintf(file, " (%s)", (t->value.hash.id ? "id" :  "unrestricted"));
             break;
 
         case TOKEN_DELIM:
-            fprintf(file, "Delim: %c", t->value.delim.value);
+            fprintf(file, " Delimeter: %c", t->value.delim.value);
             break;
-
-
     }
 
 
@@ -1352,14 +1341,14 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
                 lexer_consume(L);
                 return token_simple(L, TOKEN_COLUMN);
             }
-            return token_simple(L, TOKEN_DELIM);
+            return token_delim(L, CHAR_VERTICAL_LINE);
 
         case CHAR_TILDE:
             if (L->next == CHAR_EQUALS_SIGN) {
                 lexer_consume(L);
                 return token_simple(L, TOKEN_INCLUDE_MATCH);
             }
-            return token_simple(L, TOKEN_DELIM);
+            return token_delim(L, CHAR_TILDE);
 
         case CHAR_LATIN_CAPITAL_U:
         case CHAR_LATIN_SMALL_U:
@@ -1389,7 +1378,7 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
                 return consume_numeric(L, b);
             }
 
-            return token_simple(L, TOKEN_DELIM);
+            return token_delim(L, L->current);
 
     }
     NEVER_RETURN();
@@ -1407,7 +1396,7 @@ struct lexer* lexer_init(FILE* input)
     L->cursor.line   = 1;
     L->cursor.column = 1;
     L->logging.consumtion = false;
-    L->logging.trace = true;
+    L->logging.trace = false;
     buffer_logging = false;
     return L;
 }
@@ -1797,5 +1786,7 @@ static void ss_print_rule(struct rule* rule, FILE* file) {
 }
 
 void stylesheet_print(struct stylesheet* ss, FILE* file) {
-    ss_print_rule(ss->rule, file);
+    for (struct rule* rule = ss->rule; rule; rule = rule->next) {
+        ss_print_rule(rule, file);
+    }
 }

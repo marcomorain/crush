@@ -12,15 +12,8 @@ int main(int argc, const char * argv[])
     }
 
     struct lexer* L = lexer_init(input);
-
-    for (;;)
-    {
-        struct token* token = lexer_next(L);
-        if (token_type(token) == TOKEN_EOF) {
-            break;
-        }
-        token_print(stdout, token);
-    }
+    struct stylesheet* ss = parse_stylesheet(L);
+    stylesheet_print(ss, stdout);
 
     return 0;
 }
