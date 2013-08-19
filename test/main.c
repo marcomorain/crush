@@ -18,6 +18,7 @@ static int fail(const char* format, ...) {
 }
 
 static FILE* file_with_contents(const char* data){
+    printf("FILE: %s\n", data);
     FILE* file = tmpfile();
     fwrite(data, strlen(data), 1, file);
     rewind(file);
@@ -37,7 +38,7 @@ int test_range(const char* repr, int low, int high) {
     int actual_high = token_range_high(token);
 
     struct token* then = lexer_next(lexer);
-    if (token_type(then) != TOKEN_NONE){
+    if (token_type(then) != TOKEN_EOF){
         return fail("Token was %s, expected end of input\n", token_name(token_type(then)));
     }
 
@@ -65,11 +66,11 @@ int test_number_to(const char* repr, double value, double delta) {
     double actual = token_number(token);
 
     struct token* then = lexer_next(lexer);
-    if (token_type(then) != TOKEN_NONE){
+    if (token_type(then) != TOKEN_EOF){
         return fail("Token was %s, expected end of input\n", token_name(token_type(then)));
     }
 
-    if (fabs(actual - value) > 0.0000001){
+    if (fabs(actual - value) > delta) {
         return fail("Expected %g but got %g\n", value, token_number(token));
     }
 
@@ -88,7 +89,7 @@ int test(const char* data, const int* tokens) {
     for (;;) {
         struct token* token = lexer_next(lexer);
         int found = token_type(token);
-        if (found == TOKEN_NONE) break;
+        if (found == TOKEN_EOF) break;
 
         if (found != *tokens){
             fail("Error in \"%s\" expected %s but got %s\n", data, token_name(*tokens), token_name(found));
@@ -101,7 +102,7 @@ int test(const char* data, const int* tokens) {
     }
     fclose(file);
 
-    if (*tokens != TOKEN_NONE) {
+    if (*tokens != TOKEN_EOF) {
         fail("Error token none at the end of the input %s\n", token_name(*tokens));
         return 0;
     }
@@ -122,70 +123,70 @@ void numbers() {
 
 void tokens() {
 
-    int a[] = {TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_LEFT_CURLY, TOKEN_WHITESPACE, TOKEN_RIGHT_CURLY, TOKEN_NONE};
+    int a[] = {TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_LEFT_CURLY, TOKEN_WHITESPACE, TOKEN_RIGHT_CURLY, TOKEN_EOF};
     test("body { }", a);
 
-    int b[] = {TOKEN_STRING, TOKEN_NONE};
+    int b[] = {TOKEN_STRING, TOKEN_EOF};
     test("'test'", b);
 
-    int c[] = {TOKEN_STRING, TOKEN_NONE};
+    int c[] = {TOKEN_STRING, TOKEN_EOF};
     test("\"apple\"", c);
 
-    int d[] = {TOKEN_SUFFIX_MATCH, TOKEN_NONE};
+    int d[] = {TOKEN_SUFFIX_MATCH, TOKEN_EOF};
     test("$=", d);
 
-    int e[] = {TOKEN_DELIM, TOKEN_NUMBER, TOKEN_NONE};
+    int e[] = {TOKEN_DELIM, TOKEN_NUMBER, TOKEN_EOF};
     test("$1", e);
 
-    int f[] = { TOKEN_SUBSTRING_MATCH, TOKEN_NONE };
+    int f[] = { TOKEN_SUBSTRING_MATCH, TOKEN_EOF };
     test("*=", f);
 
-    int g[] = { TOKEN_DELIM, TOKEN_NUMBER, TOKEN_NONE };
+    int g[] = { TOKEN_DELIM, TOKEN_NUMBER, TOKEN_EOF };
     test("*9", g);
 
-    int h[] = {TOKEN_NUMBER, TOKEN_NONE };
+    int h[] = {TOKEN_NUMBER, TOKEN_EOF };
     test("+1", h);
 
-    int i[] = {TOKEN_DELIM, TOKEN_IDENT, TOKEN_NONE };
+    int i[] = {TOKEN_DELIM, TOKEN_IDENT, TOKEN_EOF };
     test("+a", i);
 
-    int j[] = {TOKEN_IDENT, TOKEN_COLON, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_NONE };
+    int j[] = {TOKEN_IDENT, TOKEN_COLON, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_EOF };
     test("color: orange", j);
 
-    int k[] = {TOKEN_URL, TOKEN_NONE };
+    int k[] = {TOKEN_URL, TOKEN_EOF };
     test("url(http://example.com)", k);
 
-    int l[] = {TOKEN_URL, TOKEN_NONE };
+    int l[] = {TOKEN_URL, TOKEN_EOF };
     test("url(\"http://example.com\")", l);
 
-    int m[] = {TOKEN_UNICODE_RANGE, TOKEN_NUMBER, TOKEN_NONE };
+    int m[] = {TOKEN_UNICODE_RANGE, TOKEN_NUMBER, TOKEN_EOF };
     test("U+1234567", m);
 
-    int n[] = {TOKEN_UNICODE_RANGE, TOKEN_NUMBER, TOKEN_NONE };
+    int n[] = {TOKEN_UNICODE_RANGE, TOKEN_NUMBER, TOKEN_EOF };
     test("U+123456-1234567", n);
 
-    int o[] = { TOKEN_DELIM, TOKEN_NUMBER, TOKEN_INCLUDE_MATCH, TOKEN_NONE };
+    int o[] = { TOKEN_DELIM, TOKEN_NUMBER, TOKEN_INCLUDE_MATCH, TOKEN_EOF };
     test("~.2~=", o);
 
-    int p[] = { TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_NONE };
+    int p[] = { TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_EOF };
     test("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", p);
 
-    int q[] = { TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_NONE };
+    int q[] = { TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_EOF };
     test("abc\n\rabc\nabc\rabc", q);
 
-    int r[] = {TOKEN_DASH_MATCH, TOKEN_DASH_MATCH, TOKEN_COLUMN, TOKEN_DELIM, TOKEN_NONE};
+    int r[] = {TOKEN_DASH_MATCH, TOKEN_DASH_MATCH, TOKEN_COLUMN, TOKEN_DELIM, TOKEN_EOF};
     test("|=|=|||", r);
 
-    int s[] = {TOKEN_NUMBER, TOKEN_COMMA, TOKEN_NUMBER, TOKEN_NONE};
+    int s[] = {TOKEN_NUMBER, TOKEN_COMMA, TOKEN_NUMBER, TOKEN_EOF};
     test("1,456", s);
 
-    int t[] = {TOKEN_HASH, TOKEN_WHITESPACE, TOKEN_DELIM, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_NONE};
+    int t[] = {TOKEN_HASH, TOKEN_WHITESPACE, TOKEN_DELIM, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_EOF};
     test("#hashtag # hashtag", t);
 
-    int u[] = {TOKEN_DELIM, TOKEN_IDENT, TOKEN_DELIM, TOKEN_NONE};
+    int u[] = {TOKEN_DELIM, TOKEN_IDENT, TOKEN_DELIM, TOKEN_EOF};
     test("/* a comment *//*another*//slash/", u);
 
-    int v[] = {TOKEN_AT_KEYWORD, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_DELIM, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_NONE};
+    int v[] = {TOKEN_AT_KEYWORD, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_DELIM, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_EOF};
     test("@keyword foo @ bar", v);
 }
 
@@ -195,11 +196,24 @@ void ranges() {
     test_range("U+15-17", 0x15, 0x17);
 }
 
+void* parse(const char* data) {
+    FILE* file = file_with_contents(data);
+    struct lexer* lexer = lexer_init(file);
+    struct stylesheet* ss = parse_stylesheet(lexer);
+    stylesheet_print(ss, stdout);
+    return ss;
+}
+
 int main(int argc, const char * argv[])
 {
-    ranges();
-    numbers();
-    tokens();
+    (void)argc;
+    (void)argv;
+//    ranges();
+//    numbers();
+//    tokens();
+
+//    parse("foo { }");
+    parse("foo { width: 100% }");
 
     printf("passed: %d failed: %d\n", passes, fails);
     return 0;
