@@ -1592,7 +1592,7 @@ static struct component_value* consume_simple_block(struct parser* p, enum token
     NEVER_RETURN();
 }
 
-static void* consume_function(struct parser* p){
+static void* consume_function(struct parser* p) {
     NEVER_RETURN();
 }
 
@@ -1764,9 +1764,14 @@ static void ss_print_token(struct token* token, FILE* file) {
     token_print(file, token);
 }
 
+static void ss_print_component_value(struct component_value* cv, FILE* file);
 
 static void ss_print_block(cp end, struct component_value* cv, FILE* file) {
-    fprintf(file, "%c %s %c\n", end, "block", end);
+    fprintf(file, "{ ");
+    for (struct component_value* i = cv; i; i = i->next) {
+        ss_print_component_value(i, file);
+    }
+    fprintf(file, " }\n");
 }
 
 static void ss_print_component_value(struct component_value* cv, FILE* file) {

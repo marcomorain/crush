@@ -208,12 +208,12 @@ int main(int argc, const char * argv[])
 {
     (void)argc;
     (void)argv;
- //   ranges();
- //   numbers();
+//    ranges();
+//    numbers();
 //    tokens();
 
-    parse("foo { }");
-//    parse("foo { width: 100% }");
+//    parse("foo { }");
+    parse("foo { width: 100% }");
 
     printf("passed: %d failed: %d\n", passes, fails);
     return 0;
