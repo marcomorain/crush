@@ -1,4 +1,4 @@
-CCFLAGS = -std=c99 -Wall
+CCFLAGS = -std=c99 -Wall -O3
 
 default: crush/*.c
 	mkdir -p bin

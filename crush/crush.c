@@ -10,9 +10,21 @@
 // http://dev.w3.org/csswg/css-syntax/#tokenizing-and-parsing-css
 
 const static unsigned BUFFER_INIT_MAX = 32;
+#define NEVER_RETURN() {assert(0); return 0;}
 
 // Code point
 typedef int cp;
+
+// TODO: Surrogate code points was added to spec.
+
+static void* zmalloc(size_t size) {
+    void* result = calloc(size, 1);
+    if (!result) {
+        fprintf(stderr, "Error allocating memory");
+        exit(EXIT_FAILURE);
+    }
+    return result;
+}
 
 struct buffer {
     size_t capacity;
@@ -32,7 +44,7 @@ struct buffer* buffer_init(struct buffer* b) {
 static void buffer_grow(struct buffer* b)
 {
     cp* data = b->data;
-    b->data = malloc(2 * b->capacity * sizeof(cp));
+    b->data = zmalloc(2 * b->capacity * sizeof(cp));
     memcpy(b->data, data, b->capacity * sizeof(cp));
     b->capacity *= 2;
     if (data != b->initial){
@@ -74,7 +86,15 @@ static struct buffer* buffer_push(struct buffer* b, cp c) {
     return b;
 }
 
+struct cursor {
+    unsigned line;
+    unsigned column;
+};
+
 struct lexer {
+
+    // TODO: Double linked list of tokens in debug to ensure all memory is freed
+    // correctly without leaks.
     FILE* input;
 
     // The last character to have been consumed.
@@ -82,8 +102,8 @@ struct lexer {
 
     // The first character in the input stream that has not yet been consumed.
     cp next;
-    cp line;
-    cp column;
+
+    struct cursor cursor;
     bool integer;
     bool id; // for hash
 
@@ -171,6 +191,12 @@ struct token {
     } value;
 
     struct buffer buffer;
+    struct cursor cursor;
+
+    // TODO: move this to parser
+    // This is the next token in a list of
+    // component values before a qaulified rule
+    struct token* next;
 };
 
 void token_free(struct token* t) {
@@ -237,8 +263,7 @@ static double compute_value(double s, double i, double f, double d, double t, do
     return s * (i + f *  powf(10, -d)) * powf(10, t*e);
 }
 
-static double string_to_number(struct buffer* b, bool integer) {
-
+static double string_to_number(struct buffer* b) {
     int current = 0;
     int d = 0;
 
@@ -313,7 +338,7 @@ static cp lexer_preprocess(FILE* input) {
 static void lexer_recomsume(struct lexer* L)
 {
     if (L->logging.consumtion) {
-        printf("Line %d:%d: unconsuming %c (0x%02X)\n", L->line, L->column, p(L->current), L->current);
+        printf("Line %d:%d: unconsuming %c (0x%02X)\n", L->cursor.line, L->cursor.column, p(L->current), L->current);
     }
     ungetcf(L->next, L->input);
     L->next = L->current;
@@ -329,20 +354,20 @@ static void lexer_consume(struct lexer* L)
 
     if (L->logging.consumtion) {
         printf("Line %d:%d: Consuming %c (0x%02X); next is %c (0x%02X)\n",
-               L->line, L->column, p(L->current), L->current, p(L->next), L->next);
+               L->cursor.line, L->cursor.column, p(L->current), L->current, p(L->next), L->next);
     }
 
-    L->column++;
+    L->cursor.column++;
     if (L->current == CHAR_LINE_FEED){
-        L->line++;
-        L->column = 0;
+        L->cursor.line++;
+        L->cursor.column = 1;
     }
 }
 
 const char* token_name(int t){
     switch (t){
 #define NAME(X) case (X): return #X;
-            NAME(TOKEN_NONE);
+            NAME(TOKEN_EOF);
             NAME(TOKEN_IDENT);
             NAME(TOKEN_FUNCTION);
             NAME(TOKEN_AT_KEYWORD);
@@ -376,40 +401,32 @@ const char* token_name(int t){
             NAME(TOKEN_RIGHT_CURLY);
 #undef NAME
     }
-    return "";
+    NEVER_RETURN();
 }
 
-static void* mallocf(size_t size){
-    void* result = malloc(size);
-    if (!result) {
-        fprintf(stderr, "Error allocating memory");
-        exit(EXIT_FAILURE);
-    }
-    return result;
-}
-
-static struct token* token_simple(int type) {
-    struct token* t = calloc(1, sizeof(struct token));
-    t->type = type;
+static struct token* token_simple(struct lexer* L, int type) {
+    struct token* t = zmalloc(sizeof(struct token));
+    t->type   = type;
+    t->cursor = L->cursor;
     return t;
 }
 
-static struct token* token_range(cp start, cp end) {
+static struct token* token_range(struct lexer* L, cp start, cp end) {
 
-    struct token* t = token_simple(TOKEN_UNICODE_RANGE);
+    struct token* t = token_simple(L, TOKEN_UNICODE_RANGE);
     t->value.range.start = start;
     t->value.range.end = end;
     return t;
 }
 
-static struct token* token_delim(cp value) {
-    struct token* t = token_simple(TOKEN_DELIM);
+static struct token* token_delim(struct lexer* L, cp value) {
+    struct token* t = token_simple(L, TOKEN_DELIM);
     t->value.delim.value = value;
     return t;
 }
 
 static struct token* token_new(struct lexer* L, int type, struct buffer* b) {
-    struct token* t = token_simple(type);
+    struct token* t = token_simple(L, type);
 
     t->value.hash.id = L->id;
 
@@ -423,7 +440,7 @@ static struct token* token_new(struct lexer* L, int type, struct buffer* b) {
             assert(0); // done later
 
         case TOKEN_NUMBER:
-            t->value.number.value = string_to_number(&t->buffer, L->integer);
+            t->value.number.value = string_to_number(&t->buffer);
             buffer_init(&t->value.number.unit);
             break;
 
@@ -440,69 +457,61 @@ static struct token* token_new(struct lexer* L, int type, struct buffer* b) {
 
 void token_print(FILE* file, struct token* t) {
 
-    fprintf(file, "[%s => ", token_name(token_type(t)));
+    fprintf(file, "[%s", token_name(token_type(t)));
 
     switch (t->type) {
 
-        case TOKEN_NONE:
+        default: // TODO: Remove the default and handle the tokens
+        case TOKEN_EOF:
             break;
 
         case TOKEN_URL:
-            fprintf(file, "url(");
+            fprintf(file, " url(");
             break;
 
         case TOKEN_STRING:
-            fprintf(file, "'");
+            fprintf(file, " '");
             buffer_print(file, t);
             fprintf(file, "'");
             break;
 
 
         case TOKEN_FUNCTION:
-            fprintf(file, "Function: ");
+            fprintf(file, " Function: ");
             buffer_print(file, t);
             break;
 
         case TOKEN_AT_KEYWORD:
-            fprintf(file, "@");
+            fprintf(file, " @");
             buffer_print(file, t);
             break;
 
         case TOKEN_LEFT_CURLY:
-            fprintf(file, "{");
-            break;
-
         case TOKEN_RIGHT_CURLY:
-            fprintf(file, "}");
-            break;
-
         case TOKEN_COLON:
-            fprintf(file, "colon -> : ");
-            break;
-
         case TOKEN_SEMICOLON:
-            fprintf(file, "semicolon -> ;");
             break;
 
         case TOKEN_IDENT:
+            fprintf(file, " ");
             buffer_print(stdout, t);
             break;
 
         case TOKEN_NUMBER:
         case TOKEN_PERCENTAGE:
         case TOKEN_DIMENSION:
-            //fprintf(file, "%g", t->number);
+            fprintf(file, " Value: %g buffer: ", t->value.number.value);
             buffer_print(file, t);
             break;
 
         case TOKEN_HASH:
-            fprintf(file, "#");
+            fprintf(file, " #");
             buffer_print(file, t);
             fprintf(file, " (%s)", (t->value.hash.id ? "id" :  "unrestricted"));
             break;
 
         case TOKEN_DELIM:
-            fprintf(file, "Delim: %c", t->value.delim.value);
+            fprintf(file, " Delimeter: %c", t->value.delim.value);
             break;
     }
 
@@ -514,7 +523,7 @@ static struct token* consume_token(struct lexer* L, struct buffer* b);
 
 static void lexer_trace(struct lexer* L, const char* state) {
     if (L->logging.trace) {
-        printf("%d:%d %s\n", L->line, L->column, state);
+        printf("%d:%d %s\n", L->cursor.line, L->cursor.column, state);
     }
 }
 
@@ -1100,7 +1109,7 @@ static struct token* consume_unicode_range(struct lexer* L) {
     consume_unicode_range_with_buffers(L, &start, &end, &low, &high);
     buffer_free(&start);
     buffer_free(&end);
-    return token_range(low, high);
+    return token_range(L, low, high);
 }
 
 
@@ -1197,37 +1206,37 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
                 return token_new(L, TOKEN_HASH, &buffer);
             }
 
-            return token_delim(L->current);
+            return token_delim(L, L->current);
 
         case CHAR_DOLLAR_SIGN:
             if (L->next == CHAR_EQUALS_SIGN) {
                 lexer_consume(L);
-                return token_simple(TOKEN_SUFFIX_MATCH);
+                return token_simple(L, TOKEN_SUFFIX_MATCH);
             }
-            return token_delim(L->current);
+            return token_delim(L, L->current);
 
         case CHAR_LEFT_PARENTHESIS:
-            return token_simple(TOKEN_PAREN_LEFT);
+            return token_simple(L, TOKEN_PAREN_LEFT);
 
         case CHAR_RIGHT_PARENTHESIS:
-            return token_simple(TOKEN_PAREN_RIGHT);
+            return token_simple(L, TOKEN_PAREN_RIGHT);
 
         case CHAR_ASTERISK:
             if (L->next == CHAR_EQUALS_SIGN) {
                 lexer_consume(L);
-                return token_simple(TOKEN_SUBSTRING_MATCH);
+                return token_simple(L, TOKEN_SUBSTRING_MATCH);
             }
-            return token_delim(L->current);
+            return token_delim(L, L->current);
 
         case CHAR_PLUS_SIGN:
             if (lexer_starts_with_number(L)){
                 lexer_recomsume(L);
                 return consume_numeric(L, b);
             }
-            return token_delim(L->current);
+            return token_delim(L, L->current);
 
         case CHAR_COMMA:
-            return token_simple(TOKEN_COMMA);
+            return token_simple(L, TOKEN_COMMA);
 
         case CHAR_HYPHEN_MINUS:
             if (lexer_starts_with_number(L)){
@@ -1243,10 +1252,10 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
             if (L->next == CHAR_HYPHEN_MINUS && peek(L->input) == CHAR_GREATER_THAN) {
                 lexer_consume(L);
                 lexer_consume(L);
-                return token_simple(TOKEN_CDC);
+                return token_simple(L, TOKEN_CDC);
             }
 
-            return token_delim(L->current);
+            return token_delim(L, L->current);
 
         case CHAR_FULL_STOP:
             // If the input stream starts with a number, reconsume the current
@@ -1257,7 +1266,7 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
             }
             // Otherwise, emit a <delim> token with its value set to the current
             // input character. Remain in this state.
-            return token_delim(L->current);
+            return token_delim(L, L->current);
 
         case CHAR_SOLIDUS:
             if (L->next == CHAR_ASTERISK) {
@@ -1278,25 +1287,25 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
                 // go again.
                 return consume_token(L, b);
             }
-            return token_delim(L->current);
+            return token_delim(L, L->current);
 
         case CHAR_COLON:
-            return token_simple(TOKEN_COLON);
+            return token_simple(L, TOKEN_COLON);
 
         case CHAR_SEMICOLON:
-            return token_simple(TOKEN_SEMICOLON);
+            return token_simple(L, TOKEN_SEMICOLON);
 
         case CHAR_LESS_THAN:
             if (lexer_next_three_are(L, CHAR_EXCLAMATION_MARK, CHAR_HYPHEN_MINUS, CHAR_HYPHEN_MINUS)){
-                return token_simple(TOKEN_CDO);
+                return token_simple(L, TOKEN_CDO);
             }
-            return token_delim(L->current);
+            return token_delim(L, L->current);
 
         case CHAR_LEFT_CURLY:
-            return token_simple(TOKEN_LEFT_CURLY);
+            return token_simple(L, TOKEN_LEFT_CURLY);
 
         case CHAR_RIGHT_CURLY:
-            return token_simple(TOKEN_RIGHT_CURLY);
+            return token_simple(L, TOKEN_RIGHT_CURLY);
 
         case CHAR_COMMERCIAL_AT:
             // If the next 3 input characters would start an identifier, switch
@@ -1307,39 +1316,39 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
 
             // Otherwise, emit a 〈delim〉 token with its value set to the current
             // input character. Remain in this state.
-            return token_delim(L->current);
+            return token_delim(L, L->current);
 
 
         case CHAR_LEFT_SQUARE:
-            return token_simple(TOKEN_LEFT_SQUARE);
+            return token_simple(L, TOKEN_LEFT_SQUARE);
 
         case CHAR_RIGHT_SQUARE:
-            return token_simple(TOKEN_RIGHT_SQUARE);
+            return token_simple(L, TOKEN_RIGHT_SQUARE);
 
         case CHAR_CIRCUMFLEX_ACCENT:
             if (L->next == '='){
                 lexer_consume(L);
-                return token_simple(TOKEN_PREFIX_MATCH);
+                return token_simple(L, TOKEN_PREFIX_MATCH);
             }
-            return token_delim(L->current);
+            return token_delim(L, L->current);
 
         case CHAR_VERTICAL_LINE:
             if (L->next == '=') {
                 lexer_consume(L);
-                return token_simple(TOKEN_DASH_MATCH);
+                return token_simple(L, TOKEN_DASH_MATCH);
             }
             if (L->next == CHAR_VERTICAL_LINE) {
                 lexer_consume(L);
-                return token_simple(TOKEN_COLUMN);
+                return token_simple(L, TOKEN_COLUMN);
             }
-            return token_simple(TOKEN_DELIM);
+            return token_delim(L, CHAR_VERTICAL_LINE);
 
         case CHAR_TILDE:
             if (L->next == CHAR_EQUALS_SIGN) {
                 lexer_consume(L);
-                return token_simple(TOKEN_INCLUDE_MATCH);
+                return token_simple(L, TOKEN_INCLUDE_MATCH);
             }
-            return token_simple(TOKEN_DELIM);
+            return token_delim(L, CHAR_TILDE);
 
         case CHAR_LATIN_CAPITAL_U:
         case CHAR_LATIN_SMALL_U:
@@ -1356,7 +1365,7 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
 
 
         case CHAR_EOF:
-            return token_simple(TOKEN_NONE);
+            return token_simple(L, TOKEN_EOF);
 
         default:
             if (char_name_start(L->current)) {
@@ -1369,22 +1378,26 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
                 return consume_numeric(L, b);
             }
 
-            return token_simple(TOKEN_DELIM);
+            return token_delim(L, L->current);
 
     }
-    printf("Unexpected input at line %d:%d %c (0x%02X)\n", L->line, L->column, p(L->current), L->current);
-    return token_simple(TOKEN_NONE);
+    NEVER_RETURN();
 }
+
+
+// LEXER  ^^
+// PARSER VV
 
 struct lexer* lexer_init(FILE* input)
 {
-    struct lexer* L = calloc(sizeof(struct lexer), 1);
+    struct lexer* L = zmalloc(sizeof(struct lexer));
     L->input   = input;
     L->next    = fgetc(input);
-    L->line    = 1;
-    L->logging.consumtion = true;
-    L->logging.trace = true;
-    buffer_logging = true;
+    L->cursor.line   = 1;
+    L->cursor.column = 1;
+    L->logging.consumtion = false;
+    L->logging.trace = false;
+    buffer_logging = false;
     return L;
 }
 
@@ -1394,7 +1407,7 @@ struct token* lexer_next(struct lexer* L)
     return consume_token(L, buffer_init(&buffer));
 }
 
-// Test
+// Exposed for testing
 double token_number(struct token* t) {
     assert(t->type == TOKEN_NUMBER);
     return t->value.number.value;
@@ -1408,4 +1421,372 @@ int token_range_low(struct token* t) {
 int token_range_high(struct token* t) {
     assert(t->type == TOKEN_UNICODE_RANGE);
     return t->value.range.end;
+}
+
+
+// Parse
+
+struct parser {
+    struct token* current;
+    struct token* next;
+    struct lexer* lexer;
+};
+
+struct parser* parser_init(struct parser* parser, struct lexer* lexer) {
+    parser->lexer = lexer;
+    parser->current = parser->next = NULL;
+    return parser;
+}
+
+struct stylesheet {
+    struct rule* rule;
+};
+
+void parser_consume(struct parser* p) {
+    if (p->next) {
+        p->current = p->next;
+        p->next = NULL;
+    } else {
+        p->current = lexer_next(p->lexer);
+    }
+}
+
+void parser_reconsume(struct parser* p) {
+    assert(p->next == NULL);
+    p->next = p->current;
+    p->current = NULL;
+}
+
+static void parse_error(struct parser* p, const char* reason) {
+    fprintf(stderr, "Parse error: %s line:%d column: %d\n",
+            reason,
+            p->current->cursor.line,
+            p->current->cursor.column);
+}
+
+enum rule_type {
+    RULE_QUALIFIED,
+    RULE_AT
+};
+
+enum component_value_type {
+    CV_BLOCK,
+    CV_FUNCTION,
+    CV_TOKEN
+};
+
+struct component_value {
+    struct component_value* next;
+    enum component_value_type type;
+    union {
+        void* function;
+        struct token* token;
+        struct {
+            enum token_type end;
+            struct component_value* head;
+        } block;
+
+    } data;
+};
+
+struct rule {
+    enum rule_type type; // TODO: can be derived form at_name == null.
+    struct rule* next;
+    struct token* at_name;
+    struct component_value* prelude;
+    struct component_value* block;
+};
+
+// TODO: This runs order N, should be O(1).
+static struct rule* append_rule(struct rule* head, struct rule* rule) {
+    if (head == NULL) return rule;
+
+    struct rule* last = head;
+    while(last->next) last = last->next;
+    last->next = rule;
+    return head;
+}
+
+
+static void parser_skip_ws(struct parser* p) {
+    while (p->current->type == TOKEN_WHITESPACE) {
+        parser_consume(p);
+    }
+}
+
+void block_append(struct component_value* block, struct component_value* cv) {
+    assert(cv->next == NULL);
+    if (block->data.block.head == NULL) {
+        block->data.block.head = cv;
+        return;
+    }
+
+    struct component_value* i = block->data.block.head;
+    while(i->next) i = i->next;
+    i->next = cv;
+}
+
+static struct component_value* consume_component_value(struct parser* p);
+static void append_token_to_prelude(struct rule* rule, struct component_value* cv);
+
+static enum token_type mirror_of(enum token_type t) {
+    switch (t) {
+        case TOKEN_PAREN_LEFT:  return TOKEN_PAREN_RIGHT;
+        case TOKEN_LEFT_CURLY:  return TOKEN_RIGHT_CURLY;
+        case TOKEN_LEFT_SQUARE: return TOKEN_RIGHT_SQUARE;
+        default:
+        assert(0);
+        return 0;
+    }
+}
+
+static struct component_value* component_value_new(enum component_value_type type){
+    struct component_value* cv = zmalloc(sizeof(struct component_value));
+    cv->type = type;
+    return cv;
+}
+
+static struct component_value* component_value_new_token(struct token* token) {
+    struct component_value* result = component_value_new(CV_TOKEN);
+    result->data.token = token;
+    return result;
+}
+
+static struct component_value* component_value_new_block(enum token_type start) {
+    struct component_value* block = component_value_new(CV_BLOCK);
+    block->data.block.end = mirror_of(start);
+    return block;
+}
+
+
+static struct component_value* consume_simple_block(struct parser* p, enum token_type start) {
+
+    struct component_value* block = component_value_new_block(start);
+
+    for (;;){
+        parser_consume(p);
+
+        // TODO: This does not seem to match the spec
+        // email to ask
+        parser_skip_ws(p);
+
+        if (p->current->type == TOKEN_EOF ||
+            p->current->type == block->data.block.end) {
+            return block;
+        }
+        parser_reconsume(p);
+        block_append(block, consume_component_value(p));
+    }
+
+    NEVER_RETURN();
+}
+
+static void* consume_function(struct parser* p) {
+    NEVER_RETURN();
+}
+
+static struct component_value* consume_component_value(struct parser* p){
+    parser_consume(p);
+    parser_skip_ws(p);
+    switch (p->current->type) {
+        case TOKEN_LEFT_CURLY:
+        case TOKEN_LEFT_SQUARE:
+        case TOKEN_PAREN_LEFT:
+            return consume_simple_block(p, p->current->type);
+
+        case TOKEN_FUNCTION:
+            return consume_function(p);
+
+        default:
+            return component_value_new_token(p->current);
+    }
+    NEVER_RETURN();
+}
+
+static struct rule* rule_new(enum rule_type type) {
+    struct rule* rule = zmalloc(sizeof(struct rule));
+    rule->type = type;
+    return rule;
+}
+
+static struct rule* consume_at_rule(struct parser* p) {
+    struct rule* rule = rule_new(RULE_AT);
+    rule->at_name = p->current;
+
+    for (;;) {
+
+        parser_consume(p);
+
+        switch(p->current->type) {
+            case TOKEN_SEMICOLON:
+            case TOKEN_EOF:
+                return rule;
+            case TOKEN_LEFT_CURLY:
+                rule->block = consume_simple_block(p, TOKEN_LEFT_CURLY);
+                return rule;
+            // case simple block:
+            default:
+                parser_reconsume(p);
+                append_token_to_prelude(rule, consume_component_value(p));
+                break;
+        }
+    }
+}
+
+static void append_token_to_prelude(struct rule* rule, struct component_value* cv) {
+    assert(rule->type  == RULE_QUALIFIED);
+    assert(cv->next == NULL);
+
+    if (!rule->prelude) {
+        rule->prelude = cv;
+        return;
+    }
+
+    struct component_value* i = rule->prelude;
+    while(i->next)  i = i->next;
+    assert(i->next == NULL);
+    i->next = cv;
+}
+
+// 5.4.3 Consume a qualified rule
+// Create a new qualified rule with its prelude initially set to an empty list,
+// and its value initially set to nothing.
+// Repeatedly consume the next input token:
+//
+// <EOF>:
+// This is a parse error. Return nothing.
+//
+// <{>:
+// Consume a simple block and assign it to the qualified rule's block. Return
+// the qualified rule.
+//
+// simple block with an associated token of <{>:
+// Assign the block to the qualified rule's block. Return the qualified rule.
+//
+// anything else:
+// Reconsume the current input token. Consume a component value. Append the
+// returned value to the qualified rule's prelude.
+static struct rule* consume_qualified_rule(struct parser* p) {
+
+    struct rule* result = rule_new(RULE_QUALIFIED);
+
+    for (;;)
+    {
+        parser_consume(p);
+
+        // TODO: This does not seem to match the spec.
+        // Email to ask.
+        parser_skip_ws(p);
+
+        switch (token_type(p->current)) {
+                
+            case TOKEN_EOF:
+                parse_error(p, "Unexepected end of input");
+                // parse error
+                return NULL;
+
+            case TOKEN_LEFT_CURLY:
+                result->block = consume_simple_block(p, TOKEN_LEFT_CURLY);
+                return result;
+
+            // case simple block
+            // TODO. handle this.
+
+            default:
+                parser_reconsume(p);
+                append_token_to_prelude(result, consume_component_value(p));
+                break;
+        }
+    }
+    NEVER_RETURN();
+}
+
+// TODO: Is top level always true for documents?
+static struct rule* consume_list_of_rules(struct parser* p, bool top_level)
+{
+    struct rule* result = NULL;
+    
+    for (;;) {
+
+        parser_consume(p);
+
+        switch (token_type(p->current)) {
+            case TOKEN_WHITESPACE:
+                break;
+
+            case TOKEN_EOF:
+                return result;
+
+            case TOKEN_CDC:
+            case TOKEN_CDO:
+                // If the top-level flag is set, do nothing.
+                if (top_level) break;
+                parser_reconsume(p);
+                append_rule(result, consume_qualified_rule(p));
+                break;
+
+            case TOKEN_AT_KEYWORD:
+                parser_reconsume(p);
+                result = append_rule(result, consume_at_rule(p));
+                break;
+
+            default:
+                parser_reconsume(p);
+                result = append_rule(result, consume_qualified_rule(p));
+                break;
+
+        }
+    }
+    NEVER_RETURN();
+}
+
+struct stylesheet* parse_stylesheet(struct lexer* L) {
+    struct parser parser;
+
+    struct stylesheet* result = zmalloc(sizeof(struct stylesheet));
+
+    result->rule = consume_list_of_rules(parser_init(&parser, L), true);
+    return result;
+}
+
+static void ss_print_token(struct token* token, FILE* file) {
+    token_print(file, token);
+}
+
+static void ss_print_component_value(struct component_value* cv, FILE* file);
+
+static void ss_print_block(cp end, struct component_value* cv, FILE* file) {
+    fprintf(file, "{ ");
+    for (struct component_value* i = cv; i; i = i->next) {
+        ss_print_component_value(i, file);
+    }
+    fprintf(file, " }\n");
+}
+
+static void ss_print_component_value(struct component_value* cv, FILE* file) {
+    switch (cv->type) {
+        case CV_TOKEN:
+            ss_print_token(cv->data.token, file);
+            break;
+        case CV_BLOCK:
+            ss_print_block(cv->data.block.end, cv->data.block.head, file);
+            break;
+        case CV_FUNCTION:
+            assert(0);
+    }
+}
+
+static void ss_print_rule(struct rule* rule, FILE* file) {
+    for (struct component_value* cv = rule->prelude; cv; cv = cv->next) {
+        ss_print_component_value(cv, file);
+    }
+
+    assert(rule->block->type == CV_BLOCK);
+    ss_print_block(rule->block->data.block.end, rule->block->data.block.head, file);
+}
+
+void stylesheet_print(struct stylesheet* ss, FILE* file) {
+    for (struct rule* rule = ss->rule; rule; rule = rule->next) {
+        ss_print_rule(rule, file);
+    }
 }
