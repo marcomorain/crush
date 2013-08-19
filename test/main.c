@@ -18,6 +18,7 @@ static int fail(const char* format, ...) {
 }
 
 static FILE* file_with_contents(const char* data){
+    printf("FILE: %s\n", data);
     FILE* file = tmpfile();
     fwrite(data, strlen(data), 1, file);
     rewind(file);
@@ -195,10 +196,11 @@ void ranges() {
     test_range("U+15-17", 0x15, 0x17);
 }
 
-void* parse() {
-    FILE* file = file_with_contents("foo { width: 100% }");
+void* parse(const char* data) {
+    FILE* file = file_with_contents(data);
     struct lexer* lexer = lexer_init(file);
     struct stylesheet* ss = parse_stylesheet(lexer);
+    stylesheet_print(ss, stdout);
     return ss;
 }
 
@@ -206,11 +208,12 @@ int main(int argc, const char * argv[])
 {
     (void)argc;
     (void)argv;
-    ranges();
-    numbers();
-    tokens();
+ //   ranges();
+ //   numbers();
+//    tokens();
 
-    parse();
+    parse("foo { }");
+//    parse("foo { width: 100% }");
 
     printf("passed: %d failed: %d\n", passes, fails);
     return 0;

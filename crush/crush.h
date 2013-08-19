@@ -55,3 +55,4 @@ int token_range_high(struct token* t);
 // Parse
 struct stylesheet;
 struct stylesheet* parse_stylesheet(struct lexer* L);
+void stylesheet_print(struct stylesheet* ss, FILE* file);

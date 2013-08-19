@@ -1576,6 +1576,11 @@ static struct component_value* consume_simple_block(struct parser* p, enum token
 
     for (;;){
         parser_consume(p);
+
+        // TODO: This does not seem to match the spec
+        // email to ask
+        parser_skip_ws(p);
+
         if (p->current->type == TOKEN_EOF ||
             p->current->type == block->data.block.end) {
             return block;
@@ -1593,6 +1598,7 @@ static void* consume_function(struct parser* p){
 
 static struct component_value* consume_component_value(struct parser* p){
     parser_consume(p);
+    parser_skip_ws(p);
     switch (p->current->type) {
         case TOKEN_LEFT_CURLY:
         case TOKEN_LEFT_SQUARE:
@@ -1603,11 +1609,7 @@ static struct component_value* consume_component_value(struct parser* p){
             return consume_function(p);
 
         default:
-        {
-            struct component_value* result = component_value_new(CV_TOKEN);
-            result->data.token = p->current;
-            return result;
-        }
+            return component_value_new_token(p->current);
     }
     NEVER_RETURN();
 }
@@ -1683,7 +1685,12 @@ static struct rule* consume_qualified_rule(struct parser* p) {
     {
         parser_consume(p);
 
+        // TODO: This does not seem to match the spec.
+        // Email to ask.
+        parser_skip_ws(p);
+
         switch (token_type(p->current)) {
+                
             case TOKEN_EOF:
                 parse_error(p, "Unexepected end of input");
                 // parse error
@@ -1708,13 +1715,13 @@ static struct rule* consume_qualified_rule(struct parser* p) {
 // TODO: Is top level always true for documents?
 static struct rule* consume_list_of_rules(struct parser* p, bool top_level)
 {
-    parser_consume(p);
-
     struct rule* result = NULL;
-
+    
     for (;;) {
-        struct token* token = p->current;
-        switch (token_type(token)) {
+
+        parser_consume(p);
+
+        switch (token_type(p->current)) {
             case TOKEN_WHITESPACE:
                 break;
 
@@ -1753,5 +1760,37 @@ struct stylesheet* parse_stylesheet(struct lexer* L) {
     return result;
 }
 
+static void ss_print_token(struct token* token, FILE* file) {
+    token_print(file, token);
+}
 
 
+static void ss_print_block(cp end, struct component_value* cv, FILE* file) {
+    fprintf(file, "%c %s %c\n", end, "block", end);
+}
+
+static void ss_print_component_value(struct component_value* cv, FILE* file) {
+    switch (cv->type) {
+        case CV_TOKEN:
+            ss_print_token(cv->data.token, file);
+            break;
+        case CV_BLOCK:
+            ss_print_block(cv->data.block.end, cv->data.block.head, file);
+            break;
+        case CV_FUNCTION:
+            assert(0);
+    }
+}
+
+static void ss_print_rule(struct rule* rule, FILE* file) {
+    for (struct component_value* cv = rule->prelude; cv; cv = cv->next) {
+        ss_print_component_value(cv, file);
+    }
+
+    assert(rule->block->type == CV_BLOCK);
+    ss_print_block(rule->block->data.block.end, rule->block->data.block.head, file);
+}
+
+void stylesheet_print(struct stylesheet* ss, FILE* file) {
+    ss_print_rule(ss->rule, file);
+}
