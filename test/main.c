@@ -196,6 +196,12 @@ void tokens() {
 
     int x[] = {TOKEN_FUNCTION, TOKEN_NUMBER, TOKEN_COMMA, TOKEN_NUMBER, TOKEN_COMMA, TOKEN_NUMBER, TOKEN_PAREN_RIGHT, TOKEN_EOF};
     test("rgb(1,1,1)", x);
+
+    int y[] = {TOKEN_IDENT, TOKEN_COLON, TOKEN_WHITESPACE, TOKEN_STRING, TOKEN_EOF };
+    test("content: \"\\2193\"", y);
+
+    int z[] = {TOKEN_CDO, TOKEN_EOF};
+    test("<!-- -->", z);
 }
 
 void ranges() {
@@ -216,11 +222,12 @@ int main(int argc, const char * argv[])
 {
     (void)argc;
     (void)argv;
-    //ranges();
-    //numbers();
+    ranges();
+    numbers();
     tokens();
-    //parse("foo { }");
-    //parse("foo { width: 100% }");
+
+    parse("foo { }");
+    parse("foo { width: 100% }");
     parse("foo { color: rgb(255, 200, 0); }");
 
     printf("passed: %d failed: %d\n", passes, fails);

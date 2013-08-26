@@ -1807,6 +1807,7 @@ static void ss_print_token(struct token* token, FILE* file) {
 
         case TOKEN_IDENT:
         case TOKEN_NUMBER:
+        case TOKEN_PERCENTAGE:
             buffer_print(file, token);
             break;
 
