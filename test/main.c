@@ -188,6 +188,14 @@ void tokens() {
 
     int v[] = {TOKEN_AT_KEYWORD, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_DELIM, TOKEN_WHITESPACE, TOKEN_IDENT, TOKEN_EOF};
     test("@keyword foo @ bar", v);
+
+    int w[] = {TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_LEFT_CURLY, TOKEN_WHITESPACE,
+        TOKEN_IDENT, TOKEN_COLON, TOKEN_WHITESPACE, TOKEN_PERCENTAGE,
+        TOKEN_WHITESPACE, TOKEN_RIGHT_CURLY, TOKEN_EOF};
+    test("foo { width: 100% }", w);
+
+    int x[] = {TOKEN_FUNCTION, TOKEN_NUMBER, TOKEN_COMMA, TOKEN_NUMBER, TOKEN_COMMA, TOKEN_NUMBER, TOKEN_PAREN_RIGHT, TOKEN_EOF};
+    test("rgb(1,1,1)", x);
 }
 
 void ranges() {
@@ -208,12 +216,12 @@ int main(int argc, const char * argv[])
 {
     (void)argc;
     (void)argv;
-//    ranges();
-//    numbers();
-//    tokens();
-
-//    parse("foo { }");
-    parse("foo { width: 100% }");
+    //ranges();
+    //numbers();
+    tokens();
+    //parse("foo { }");
+    //parse("foo { width: 100% }");
+    parse("foo { color: rgb(255, 200, 0); }");
 
     printf("passed: %d failed: %d\n", passes, fails);
     return 0;

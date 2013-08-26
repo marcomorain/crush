@@ -26,15 +26,15 @@ enum token_type
     TOKEN_WHITESPACE,
     TOKEN_CDO,
     TOKEN_CDC,
-    TOKEN_COLON,
-    TOKEN_SEMICOLON,
-    TOKEN_COMMA,
-    TOKEN_LEFT_SQUARE,
-    TOKEN_RIGHT_SQUARE,
-    TOKEN_PAREN_LEFT,
-    TOKEN_PAREN_RIGHT,
-    TOKEN_LEFT_CURLY,
-    TOKEN_RIGHT_CURLY
+    TOKEN_COLON        = ':',
+    TOKEN_SEMICOLON    = ';',
+    TOKEN_COMMA        = ',',
+    TOKEN_LEFT_SQUARE  = '[',
+    TOKEN_RIGHT_SQUARE = ']',
+    TOKEN_PAREN_LEFT   = '(',
+    TOKEN_PAREN_RIGHT  = ')',
+    TOKEN_LEFT_CURLY   = '{',
+    TOKEN_RIGHT_CURLY  = '}',
 };
 
 struct lexer;

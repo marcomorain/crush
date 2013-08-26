@@ -11,6 +11,7 @@
 
 const static unsigned BUFFER_INIT_MAX = 32;
 #define NEVER_RETURN() {assert(0); return 0;}
+#define null NULL
 
 // Code point
 typedef int cp;
@@ -918,7 +919,14 @@ static struct token* consume_ident_like(struct lexer* L, struct buffer* b) {
         return consume_url(L);
     }
 
-    return token_new(L, TOKEN_FUNCTION, b);
+    enum token_type type = TOKEN_IDENT;
+
+    if (L->next == CHAR_LEFT_PARENTHESIS) {
+        lexer_consume(L);
+        type = TOKEN_FUNCTION;
+    }
+
+    return token_new(L, type, b);
 }
 
 static void consume_next_digits(struct lexer* L, struct buffer* b){
@@ -989,6 +997,7 @@ static struct token* consume_numeric(struct lexer* L, struct buffer* b) {
         buffer_move(&number->value.number.unit, &unit);
 
     } else if (L->next == CHAR_PERCENT_SIGN){
+        lexer_consume(L);
         number->type = TOKEN_PERCENTAGE;
     }
 
@@ -1185,7 +1194,7 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
             while(whitespace(L->next)){
                 lexer_consume(L);
             }
-            return token_new(L, TOKEN_WHITESPACE, NULL);
+            return token_new(L, TOKEN_WHITESPACE, null);
 
             // Fall through for the two string types
         case CHAR_QUOTATION_MARK:
@@ -1434,7 +1443,7 @@ struct parser {
 
 struct parser* parser_init(struct parser* parser, struct lexer* lexer) {
     parser->lexer = lexer;
-    parser->current = parser->next = NULL;
+    parser->current = parser->next = null;
     return parser;
 }
 
@@ -1445,16 +1454,16 @@ struct stylesheet {
 void parser_consume(struct parser* p) {
     if (p->next) {
         p->current = p->next;
-        p->next = NULL;
+        p->next = null;
     } else {
         p->current = lexer_next(p->lexer);
     }
 }
 
 void parser_reconsume(struct parser* p) {
-    assert(p->next == NULL);
+    assert(p->next == null);
     p->next = p->current;
-    p->current = NULL;
+    p->current = null;
 }
 
 static void parse_error(struct parser* p, const char* reason) {
@@ -1479,7 +1488,10 @@ struct component_value {
     struct component_value* next;
     enum component_value_type type;
     union {
-        void* function;
+        struct {
+            struct token* name;
+            struct component_value* value;
+        } function;
         struct token* token;
         struct {
             enum token_type end;
@@ -1499,7 +1511,7 @@ struct rule {
 
 // TODO: This runs order N, should be O(1).
 static struct rule* append_rule(struct rule* head, struct rule* rule) {
-    if (head == NULL) return rule;
+    if (head == null) return rule;
 
     struct rule* last = head;
     while(last->next) last = last->next;
@@ -1515,8 +1527,8 @@ static void parser_skip_ws(struct parser* p) {
 }
 
 void block_append(struct component_value* block, struct component_value* cv) {
-    assert(cv->next == NULL);
-    if (block->data.block.head == NULL) {
+    assert(cv->next == null);
+    if (block->data.block.head == null) {
         block->data.block.head = cv;
         return;
     }
@@ -1581,7 +1593,35 @@ static struct component_value* consume_simple_block(struct parser* p, enum token
     NEVER_RETURN();
 }
 
+static void function_append(struct component_value* f, struct component_value* value) {
+    assert(f->type == CV_FUNCTION);
+    if(f->data.function.value == null) {
+        f->data.function.value = value;
+        return;
+    }
+    struct component_value* cv = f->data.function.value;
+    while(cv->next) cv = cv->next;
+    cv->next = value;
+}
+
 static void* consume_function(struct parser* p) {
+    struct component_value* result = component_value_new(CV_FUNCTION);
+    result->data.function.name = p->current;
+
+    for (;;){
+        parser_consume(p);
+        switch (p->current->type) {
+            case TOKEN_EOF:
+            case TOKEN_PAREN_RIGHT:
+                return result;
+
+            default:
+                parser_reconsume(p);
+                function_append(result, consume_component_value(p));
+                break;
+        }
+    }
+    
     NEVER_RETURN();
 }
 
@@ -1635,7 +1675,7 @@ static struct rule* consume_at_rule(struct parser* p) {
 
 static void append_token_to_prelude(struct rule* rule, struct component_value* cv) {
     assert(rule->type  == RULE_QUALIFIED);
-    assert(cv->next == NULL);
+    assert(cv->next == null);
 
     if (!rule->prelude) {
         rule->prelude = cv;
@@ -1644,7 +1684,7 @@ static void append_token_to_prelude(struct rule* rule, struct component_value* c
 
     struct component_value* i = rule->prelude;
     while(i->next)  i = i->next;
-    assert(i->next == NULL);
+    assert(i->next == null);
     i->next = cv;
 }
 
@@ -1683,7 +1723,7 @@ static struct rule* consume_qualified_rule(struct parser* p) {
             case TOKEN_EOF:
                 parse_error(p, "Unexepected end of input");
                 // parse error
-                return NULL;
+                return null;
 
             case TOKEN_LEFT_CURLY:
                 result->block = consume_simple_block(p, TOKEN_LEFT_CURLY);
@@ -1704,7 +1744,7 @@ static struct rule* consume_qualified_rule(struct parser* p) {
 // TODO: Is top level always true for documents?
 static struct rule* consume_list_of_rules(struct parser* p, bool top_level)
 {
-    struct rule* result = NULL;
+    struct rule* result = null;
     
     for (;;) {
 
@@ -1749,11 +1789,31 @@ struct stylesheet* parse_stylesheet(struct lexer* L) {
     return result;
 }
 
-static void ss_print_token(struct token* token, FILE* file) {
-    token_print(file, token);
-}
-
 static void ss_print_component_value(struct component_value* cv, FILE* file);
+
+static void ss_print_token(struct token* token, FILE* file) {
+    switch (token->type) {
+        case TOKEN_COLON:
+        case TOKEN_SEMICOLON:
+        case TOKEN_COMMA:
+        case TOKEN_LEFT_SQUARE:
+        case TOKEN_RIGHT_SQUARE:
+        case TOKEN_PAREN_LEFT:
+        case TOKEN_PAREN_RIGHT:
+        case TOKEN_LEFT_CURLY:
+        case TOKEN_RIGHT_CURLY:
+            fputc(token->type, file);
+            break;
+
+        case TOKEN_IDENT:
+            buffer_print(file, token);
+            break;
+
+
+        default:
+            assert(0);
+    }
+}
 
 static void ss_print_block(cp end, struct component_value* cv, FILE* file) {
     fprintf(file, "{ ");
@@ -1761,6 +1821,15 @@ static void ss_print_block(cp end, struct component_value* cv, FILE* file) {
         ss_print_component_value(i, file);
     }
     fprintf(file, " }\n");
+}
+
+static void ss_print_function(struct token* name, struct component_value* value, FILE* file) {
+    buffer_print(file, name);
+    fputs("(", file);
+    for(struct component_value* cv = value; cv; cv = cv->next) {
+        ss_print_component_value(cv, file);
+    }
+    fputs(")", file);
 }
 
 static void ss_print_component_value(struct component_value* cv, FILE* file) {
@@ -1772,7 +1841,9 @@ static void ss_print_component_value(struct component_value* cv, FILE* file) {
             ss_print_block(cv->data.block.end, cv->data.block.head, file);
             break;
         case CV_FUNCTION:
-            assert(0);
+            ss_print_function(cv->data.function.name,
+                              cv->data.function.value, file);
+            break;
     }
 }
 
