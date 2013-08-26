@@ -289,9 +289,9 @@ static double string_to_number(struct buffer* b) {
 
     double result = compute_value(s, i, f, d, t, e);
 
-    printf("Parsing buffer: ");
-    buffer_print_(stdout, b);
-    printf(" to number %g\n", result);
+    //printf("Parsing buffer: ");
+    //buffer_print_(stdout, b);
+    //printf(" to number %g\n", result);
 
     return result;
 
@@ -1806,9 +1806,9 @@ static void ss_print_token(struct token* token, FILE* file) {
             break;
 
         case TOKEN_IDENT:
+        case TOKEN_NUMBER:
             buffer_print(file, token);
             break;
-
 
         default:
             assert(0);
