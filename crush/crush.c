@@ -456,70 +456,6 @@ static struct token* token_new(struct lexer* L, int type, struct buffer* b) {
     return t;
 }
 
-void token_print(FILE* file, struct token* t) {
-
-    fprintf(file, "[%s", token_name(token_type(t)));
-
-    switch (t->type) {
-
-        default: // TODO: Remove the default and handle the tokens
-        case TOKEN_EOF:
-            break;
-
-        case TOKEN_URL:
-            fprintf(file, " url(");
-            break;
-
-        case TOKEN_STRING:
-            fprintf(file, " '");
-            buffer_print(file, t);
-            fprintf(file, "'");
-            break;
-
-
-        case TOKEN_FUNCTION:
-            fprintf(file, " Function: ");
-            buffer_print(file, t);
-            break;
-
-        case TOKEN_AT_KEYWORD:
-            fprintf(file, " @");
-            buffer_print(file, t);
-            break;
-
-        case TOKEN_LEFT_CURLY:
-        case TOKEN_RIGHT_CURLY:
-        case TOKEN_COLON:
-        case TOKEN_SEMICOLON:
-            break;
-
-        case TOKEN_IDENT:
-            fprintf(file, " ");
-            buffer_print(stdout, t);
-            break;
-
-        case TOKEN_NUMBER:
-        case TOKEN_PERCENTAGE:
-        case TOKEN_DIMENSION:
-            fprintf(file, " Value: %g buffer: ", t->value.number.value);
-            buffer_print(file, t);
-            break;
-
-        case TOKEN_HASH:
-            fprintf(file, " #");
-            buffer_print(file, t);
-            fprintf(file, " (%s)", (t->value.hash.id ? "id" :  "unrestricted"));
-            break;
-
-        case TOKEN_DELIM:
-            fprintf(file, " Delimeter: %c", t->value.delim.value);
-            break;
-    }
-
-
-    fprintf(file, "]\n");
-}
-
 static struct token* consume_token(struct lexer* L, struct buffer* b);
 
 static void lexer_trace(struct lexer* L, const char* state) {
@@ -1281,10 +1217,15 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
             if (L->next == CHAR_ASTERISK) {
                 // Skip a /* comment */
                 // todo: comment token? important comments.
-                printf("comment skipping: ");
+                if (L->logging.consumtion) {
+                    printf("comment skipping: ");
+                }
+
                 lexer_consume(L);
                 for (;;) {
-                    printf("%c", L->next);
+                    if (L->logging.consumtion) {
+                        printf("%c", L->next);
+                    }
                     lexer_consume(L);
                     if (L->current == CHAR_EOF ||
                         (L->current == CHAR_ASTERISK && L->next == CHAR_SOLIDUS)){
@@ -1544,8 +1485,11 @@ static void append_token_to_prelude(struct rule* rule, struct component_value* c
 static enum token_type mirror_of(enum token_type t) {
     switch (t) {
         case TOKEN_PAREN_LEFT:  return TOKEN_PAREN_RIGHT;
+        case TOKEN_PAREN_RIGHT:  return TOKEN_PAREN_LEFT;
         case TOKEN_LEFT_CURLY:  return TOKEN_RIGHT_CURLY;
+        case TOKEN_RIGHT_CURLY:  return TOKEN_LEFT_CURLY;
         case TOKEN_LEFT_SQUARE: return TOKEN_RIGHT_SQUARE;
+        case TOKEN_RIGHT_SQUARE: return TOKEN_LEFT_SQUARE;
         default:
         assert(0);
         return 0;
@@ -1674,7 +1618,6 @@ static struct rule* consume_at_rule(struct parser* p) {
 }
 
 static void append_token_to_prelude(struct rule* rule, struct component_value* cv) {
-    assert(rule->type  == RULE_QUALIFIED);
     assert(cv->next == null);
 
     if (!rule->prelude) {
@@ -1811,17 +1754,39 @@ static void ss_print_token(struct token* token, FILE* file) {
             buffer_print(file, token);
             break;
 
+        case TOKEN_HASH:
+            buffer_print(file, token);
+            break;
+
+        case TOKEN_AT_KEYWORD:
+            fputc('@', file);
+            buffer_print(file, token);
+            break;
+
+        case TOKEN_DELIM:
+            fputc(token->value.delim.value, file);
+            break;
+
+        case TOKEN_URL:
+            fputs("url(\"", file);
+            buffer_print(file, token);
+            fputs("\")", file);
+            break;
+
+        case TOKEN_EOF:
+            break;
+
         default:
             assert(0);
     }
 }
 
 static void ss_print_block(cp end, struct component_value* cv, FILE* file) {
-    fprintf(file, "{ ");
+    fputc(mirror_of(end), file);
     for (struct component_value* i = cv; i; i = i->next) {
         ss_print_component_value(i, file);
     }
-    fprintf(file, " }\n");
+    fputc(end, file);
 }
 
 static void ss_print_function(struct token* name, struct component_value* value, FILE* file) {
@@ -1849,12 +1814,18 @@ static void ss_print_component_value(struct component_value* cv, FILE* file) {
 }
 
 static void ss_print_rule(struct rule* rule, FILE* file) {
+    fputs("\nBLOCK!\n", file);
     for (struct component_value* cv = rule->prelude; cv; cv = cv->next) {
         ss_print_component_value(cv, file);
+        fputc(' ', file);
     }
 
-    assert(rule->block->type == CV_BLOCK);
-    ss_print_block(rule->block->data.block.end, rule->block->data.block.head, file);
+    if (rule->block) {
+        assert(rule->block->type == CV_BLOCK);
+        ss_print_block(rule->block->data.block.end, rule->block->data.block.head, file);
+    }
+
+
 }
 
 void stylesheet_print(struct stylesheet* ss, FILE* file) {

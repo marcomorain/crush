@@ -44,7 +44,6 @@ struct token* lexer_next(struct lexer* L);
 enum token_type token_type(struct token* t);
 const char* token_name(int t);
 void token_free(struct token* t);
-void token_print(FILE* file, struct token* t);
 
 // Test
 double token_number(struct token* t);
