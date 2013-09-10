@@ -1195,7 +1195,8 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
             }
 
             if (L->next == CHAR_HYPHEN_MINUS && peek(L->input) == CHAR_GREATER_THAN) {
-                lexer_consume(L);
+                lexer_consume(L); assert(L->current == CHAR_HYPHEN_MINUS);
+                lexer_consume(L); assert(L->current == CHAR_GREATER_THAN);
                 lexer_consume(L);
                 return token_simple(L, TOKEN_CDC);
             }
@@ -1247,6 +1248,10 @@ static struct token* consume_token(struct lexer* L, struct buffer* b)
 
         case CHAR_LESS_THAN:
             if (lexer_next_three_are(L, CHAR_EXCLAMATION_MARK, CHAR_HYPHEN_MINUS, CHAR_HYPHEN_MINUS)){
+                lexer_consume(L); assert(L->current == CHAR_EXCLAMATION_MARK);
+                lexer_consume(L); assert(L->current == CHAR_HYPHEN_MINUS);
+                lexer_consume(L); assert(L->current == CHAR_HYPHEN_MINUS);
+                lexer_consume(L);
                 return token_simple(L, TOKEN_CDO);
             }
             return token_delim(L, L->current);

@@ -93,7 +93,6 @@ int test(const char* data, const int* tokens) {
 
         if (found != *tokens){
             fail("Error in \"%s\" expected %s but got %s\n", data, token_name(*tokens), token_name(found));
-            token_print(stderr, token);
             token_free(token);
             return 0;
         }
@@ -200,7 +199,7 @@ void tokens() {
     int y[] = {TOKEN_IDENT, TOKEN_COLON, TOKEN_WHITESPACE, TOKEN_STRING, TOKEN_EOF };
     test("content: \"\\2193\"", y);
 
-    int z[] = {TOKEN_CDO, TOKEN_EOF};
+    int z[] = {TOKEN_CDO, TOKEN_CDC, TOKEN_EOF};
     test("<!-- -->", z);
 }
 
