@@ -1783,18 +1783,23 @@ static void ss_print_token(struct token* token, FILE* file) {
             fputs("\")", file);
             break;
 
+        case TOKEN_STRING:
+            fputs("\"", file);
+            buffer_print(file, token);
+            fputs("\"", file);
+            break;
+            
         case TOKEN_EOF:
             break;
 
         default:
             assert(0);
     }
+    fputc(' ', file);
 }
 
 static void ss_print_block(cp end, struct component_value* cv, FILE* file) {
-    fputs("BLOCK: ", file);
     fputc(mirror_of(end), file);
-    fputc('\n', file);
     for (struct component_value* i = cv; i; i = i->next) {
         ss_print_component_value(i, file);
     }
@@ -1828,17 +1833,13 @@ static void ss_print_component_value(struct component_value* cv, FILE* file) {
 
 static void ss_print_rule(struct rule* rule, FILE* file) {
 
-    fprintf(file, "\nRule: %c\n", (rule->type == RULE_QUALIFIED ? 'q' : '@'));
-
     if (rule->type == RULE_AT) {
         assert(rule->at_name);
         ss_print_token(rule->at_name, file);
-        fputc(' ', file);
     }
 
     for (struct component_value* cv = rule->prelude; cv; cv = cv->next) {
         ss_print_component_value(cv, file);
-        fputc(' ', file);
         fflush(file);
     }
 

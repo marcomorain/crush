@@ -122,6 +122,12 @@ void numbers() {
 
 void tokens() {
 
+    int aa[] = {TOKEN_IDENT, TOKEN_EOF};
+    test("div.head", aa);
+
+    int ab[] = {TOKEN_IDENT, TOKEN_IDENT, TOKEN_LEFT_CURLY, TOKEN_RIGHT_CURLY, TOKEN_EOF};
+    test("div.head table { }", ab);
+
     int a[] = {TOKEN_IDENT, TOKEN_WHITESPACE, TOKEN_LEFT_CURLY, TOKEN_WHITESPACE, TOKEN_RIGHT_CURLY, TOKEN_EOF};
     test("body { }", a);
 
@@ -201,6 +207,8 @@ void tokens() {
 
     int z[] = {TOKEN_CDO, TOKEN_CDC, TOKEN_CDO, TOKEN_CDC, TOKEN_EOF};
     test("<!-- --> <!-- -->", z);
+
+
 }
 
 void ranges() {
@@ -221,9 +229,9 @@ int main(int argc, const char * argv[])
 {
     (void)argc;
     (void)argv;
-    //ranges();
-    //numbers();
-    //tokens();
+    ranges();
+    numbers();
+    tokens();
 
     parse("@media all { /* c */ a img { color: inherit; } /* d */ } th, td { /* ns 4 */ font-family: sans-serif; }");
     //parse("foo { }");
