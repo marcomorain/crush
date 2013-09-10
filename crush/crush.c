@@ -1599,6 +1599,10 @@ static struct rule* rule_new(enum rule_type type) {
 }
 
 static struct rule* consume_at_rule(struct parser* p) {
+
+    // TODO: This consume is not really mentioned in 5.4.2 Consume an at-rule
+    parser_consume(p);
+
     struct rule* rule = rule_new(RULE_AT);
     rule->at_name = p->current;
 
@@ -1615,6 +1619,7 @@ static struct rule* consume_at_rule(struct parser* p) {
                 return rule;
             // case simple block:
             default:
+                // TODO: Whitespace comes through here.
                 parser_reconsume(p);
                 append_token_to_prelude(rule, consume_component_value(p));
                 break;
@@ -1787,11 +1792,14 @@ static void ss_print_token(struct token* token, FILE* file) {
 }
 
 static void ss_print_block(cp end, struct component_value* cv, FILE* file) {
+    fputs("BLOCK: ", file);
     fputc(mirror_of(end), file);
+    fputc('\n', file);
     for (struct component_value* i = cv; i; i = i->next) {
         ss_print_component_value(i, file);
     }
     fputc(end, file);
+    fputc('\n', file);
 }
 
 static void ss_print_function(struct token* name, struct component_value* value, FILE* file) {
@@ -1819,17 +1827,26 @@ static void ss_print_component_value(struct component_value* cv, FILE* file) {
 }
 
 static void ss_print_rule(struct rule* rule, FILE* file) {
-    fputs("\nBLOCK!\n", file);
+
+    fprintf(file, "\nRule: %c\n", (rule->type == RULE_QUALIFIED ? 'q' : '@'));
+
+    if (rule->type == RULE_AT) {
+        assert(rule->at_name);
+        ss_print_token(rule->at_name, file);
+        fputc(' ', file);
+    }
+
     for (struct component_value* cv = rule->prelude; cv; cv = cv->next) {
         ss_print_component_value(cv, file);
         fputc(' ', file);
+        fflush(file);
     }
 
     if (rule->block) {
         assert(rule->block->type == CV_BLOCK);
         ss_print_block(rule->block->data.block.end, rule->block->data.block.head, file);
     }
-
+    fputs("\n", file);
 
 }
 

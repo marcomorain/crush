@@ -199,8 +199,8 @@ void tokens() {
     int y[] = {TOKEN_IDENT, TOKEN_COLON, TOKEN_WHITESPACE, TOKEN_STRING, TOKEN_EOF };
     test("content: \"\\2193\"", y);
 
-    int z[] = {TOKEN_CDO, TOKEN_CDC, TOKEN_EOF};
-    test("<!-- -->", z);
+    int z[] = {TOKEN_CDO, TOKEN_CDC, TOKEN_CDO, TOKEN_CDC, TOKEN_EOF};
+    test("<!-- --> <!-- -->", z);
 }
 
 void ranges() {
@@ -221,13 +221,14 @@ int main(int argc, const char * argv[])
 {
     (void)argc;
     (void)argv;
-    ranges();
-    numbers();
-    tokens();
+    //ranges();
+    //numbers();
+    //tokens();
 
-    parse("foo { }");
-    parse("foo { width: 100% }");
-    parse("foo { color: rgb(255, 200, 0); }");
+    parse("@media all { /* c */ a img { color: inherit; } /* d */ } th, td { /* ns 4 */ font-family: sans-serif; }");
+    //parse("foo { }");
+    //parse("foo { width: 100% }");
+    //parse("foo { color: rgb(255, 200, 0); }");
 
     printf("passed: %d failed: %d\n", passes, fails);
     return 0;
